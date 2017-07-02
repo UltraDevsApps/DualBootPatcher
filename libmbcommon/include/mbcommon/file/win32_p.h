@@ -21,14 +21,41 @@
 
 #include "mbcommon/guard_p.h"
 
+#include <windows.h>
+
 #include "mbcommon/file/win32.h"
 
-#include <string>
-
-#include "mbcommon/file/vtable_p.h"
-
 /*! \cond INTERNAL */
-MB_BEGIN_C_DECLS
+namespace mb
+{
+
+struct Win32FileFuncs
+{
+    // windows.h
+    virtual BOOL fn_CloseHandle(HANDLE hObject) = 0;
+    virtual HANDLE fn_CreateFileW(LPCWSTR lpFileName,
+                                  DWORD dwDesiredAccess,
+                                  DWORD dwShareMode,
+                                  LPSECURITY_ATTRIBUTES lpSecurityAttributes,
+                                  DWORD dwCreationDisposition,
+                                  DWORD dwFlagsAndAttributes,
+                                  HANDLE hTemplateFile) = 0;
+    virtual BOOL fn_ReadFile(HANDLE hFile,
+                             LPVOID lpBuffer,
+                             DWORD nNumberOfBytesToRead,
+                             LPDWORD lpNumberOfBytesRead,
+                             LPOVERLAPPED lpOverlapped) = 0;
+    virtual BOOL fn_SetEndOfFile(HANDLE hFile) = 0;
+    virtual BOOL fn_SetFilePointerEx(HANDLE hFile,
+                                     LARGE_INTEGER liDistanceToMove,
+                                     PLARGE_INTEGER lpNewFilePointer,
+                                     DWORD dwMoveMethod) = 0;
+    virtual BOOL fn_WriteFile(HANDLE hFile,
+                              LPCVOID lpBuffer,
+                              DWORD nNumberOfBytesToWrite,
+                              LPDWORD lpNumberOfBytesWritten,
+                              LPOVERLAPPED lpOverlapped) = 0;
+};
 
 struct Win32FileCtx
 {
@@ -46,16 +73,18 @@ struct Win32FileCtx
 
     bool append;
 
-    SysVtable vtable;
+    Win32FileFuncs *funcs;
 };
 
-int _mb_file_open_HANDLE(SysVtable *vtable, struct MbFile *file, HANDLE handle,
-                         bool owned, bool append);
+FileStatus _file_open_HANDLE(Win32FileFuncs *funcs, File &file, HANDLE handle,
+                             bool owned, bool append);
 
-int _mb_file_open_HANDLE_filename(SysVtable *vtable, struct MbFile *file,
-                                  const char *filename, int mode);
-int _mb_file_open_HANDLE_filename_w(SysVtable *vtable, struct MbFile *file,
-                                    const wchar_t *filename, int mode);
+FileStatus _file_open_HANDLE_filename(Win32FileFuncs *funcs, File &file,
+                                      const char *filename,
+                                      FileOpenMode mode);
+FileStatus _file_open_HANDLE_filename_w(Win32FileFuncs *funcs, File &file,
+                                        const wchar_t *filename,
+                                        FileOpenMode mode);
 
-MB_END_C_DECLS
+}
 /*! \endcond */

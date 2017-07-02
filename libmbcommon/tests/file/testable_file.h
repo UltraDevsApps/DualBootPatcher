@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2017  Andrew Gunnerson <andrewgunnerson@gmail.com>
+ * Copyright (C) 2017  Andrew Gunnerson <andrewgunnerson@gmail.com>
  *
  * This file is part of DualBootPatcher
  *
@@ -19,18 +19,23 @@
 
 #pragma once
 
-#include "mbcommon/guard_p.h"
+#include "mbcommon/file.h"
+#include "mbcommon/file_p.h"
 
-#include "mbcommon/file/filename.h"
-#include "mbcommon/file/vtable_p.h"
+class TestableFilePrivate : public mb::FilePrivate
+{
+};
 
-/*! \cond INTERNAL */
-MB_BEGIN_C_DECLS
+class TestableFile : public mb::File
+{
+public:
+    MB_DECLARE_PRIVATE(TestableFile)
 
-int _mb_file_open_filename(SysVtable *vtable, struct MbFile *file,
-                           const char *filename, int mode);
-int _mb_file_open_filename_w(SysVtable *vtable, struct MbFile *file,
-                             const wchar_t *filename, int mode);
+    TestableFile() : mb::File(new TestableFilePrivate())
+    {
+    }
 
-MB_END_C_DECLS
-/*! \endcond */
+    ~TestableFile()
+    {
+    }
+};

@@ -23,12 +23,29 @@
 
 #include "mbcommon/file/fd.h"
 
-#include <string>
-
-#include "mbcommon/file/vtable_p.h"
-
 /*! \cond INTERNAL */
-MB_BEGIN_C_DECLS
+namespace mb
+{
+
+struct FdFileFuncs
+{
+    // fcntl.h
+#ifdef _WIN32
+    virtual int fn_wopen(const wchar_t *path, int flags, mode_t mode) = 0;
+#else
+    virtual int fn_open(const char *path, int flags, mode_t mode) = 0;
+#endif
+
+    // sys/stat.h
+    virtual int fn_fstat(int fildes, struct stat *buf) = 0;
+
+    // unistd.h
+    virtual int fn_close(int fd) = 0;
+    virtual int fn_ftruncate64(int fd, off_t length) = 0;
+    virtual off64_t fn_lseek64(int fd, off64_t offset, int whence) = 0;
+    virtual ssize_t fn_read(int fd, void *buf, size_t count) = 0;
+    virtual ssize_t fn_write(int fd, const void *buf, size_t count) = 0;
+};
 
 struct FdFileCtx
 {
@@ -41,16 +58,15 @@ struct FdFileCtx
 #endif
     int flags;
 
-    SysVtable vtable;
+    FdFileFuncs *funcs;
 };
 
-int _mb_file_open_fd(SysVtable *vtable, struct MbFile *file, int fd,
-                     bool owned);
+FileStatus _file_open_fd(FdFileFuncs *funcs, File &file, int fd, bool owned);
 
-int _mb_file_open_fd_filename(SysVtable *vtable, struct MbFile *file,
-                              const char *filename, int mode);
-int _mb_file_open_fd_filename_w(SysVtable *vtable, struct MbFile *file,
-                                const wchar_t *filename, int mode);
+FileStatus _file_open_fd_filename(FdFileFuncs *funcs, File &file,
+                                  const char *filename, FileOpenMode mode);
+FileStatus _file_open_fd_filename_w(FdFileFuncs *funcs, File &file,
+                                    const wchar_t *filename, FileOpenMode mode);
 
-MB_END_C_DECLS
+}
 /*! \endcond */

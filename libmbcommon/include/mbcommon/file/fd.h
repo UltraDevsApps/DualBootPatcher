@@ -21,20 +21,17 @@
 
 #include "mbcommon/file/filename.h"
 
-#ifdef __cplusplus
-#  include <cstdbool>
-#else
-#  include <stdbool.h>
-#endif
+namespace mb
+{
 
-MB_BEGIN_C_DECLS
+MB_EXPORT FileStatus file_open_fd(File &file,
+                                  int fd, bool owned);
 
-MB_EXPORT int mb_file_open_fd(struct MbFile *file,
-                              int fd, bool owned);
+MB_EXPORT FileStatus file_open_fd_filename(File &file,
+                                           const char *filename,
+                                           FileOpenMode mode);
+MB_EXPORT FileStatus file_open_fd_filename_w(File &file,
+                                             const wchar_t *filename,
+                                             FileOpenMode mode);
 
-MB_EXPORT int mb_file_open_fd_filename(struct MbFile *file,
-                                       const char *filename, int mode);
-MB_EXPORT int mb_file_open_fd_filename_w(struct MbFile *file,
-                                         const wchar_t *filename, int mode);
-
-MB_END_C_DECLS
+}

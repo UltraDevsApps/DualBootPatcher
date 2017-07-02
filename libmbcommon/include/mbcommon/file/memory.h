@@ -21,11 +21,12 @@
 
 #include "mbcommon/file.h"
 
-MB_BEGIN_C_DECLS
+namespace mb
+{
 
-MB_EXPORT int mb_file_open_memory_static(struct MbFile *file,
-                                         const void *buf, size_t size);
-MB_EXPORT int mb_file_open_memory_dynamic(struct MbFile *file,
-                                          void **buf_ptr, size_t *size_ptr);
+MB_EXPORT FileStatus file_open_memory_static(File &file,
+                                             const void *buf, size_t size);
+MB_EXPORT FileStatus file_open_memory_dynamic(File &file,
+                                              void **buf_ptr, size_t *size_ptr);
 
-MB_END_C_DECLS
+}

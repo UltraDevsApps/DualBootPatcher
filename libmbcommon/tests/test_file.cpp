@@ -25,13 +25,12 @@
 #include "mbcommon/file_p.h"
 #include "mbcommon/string.h"
 
+#include "file/testable_file.h"
+
 struct FileTest : testing::Test
 {
-    enum {
-        INITIAL_BUF_SIZE = 1024,
-    };
+    static constexpr size_t INITIAL_BUF_SIZE = 1024;
 
-    MbFile *_file;
     std::vector<unsigned char> _buf;
     size_t _position = 0;
 
@@ -43,34 +42,25 @@ struct FileTest : testing::Test
     int _n_seek = 0;
     int _n_truncate = 0;
 
-    FileTest() : _file(mb_file_new())
+    void set_all_callbacks(TestableFile &file)
     {
+        ASSERT_EQ(file.set_open_callback(&_open_cb), mb::FileStatus::OK);
+        ASSERT_EQ(file._priv_func()->open_cb, &_open_cb);
+        ASSERT_EQ(file.set_close_callback(&_close_cb), mb::FileStatus::OK);
+        ASSERT_EQ(file._priv_func()->close_cb, &_close_cb);
+        ASSERT_EQ(file.set_read_callback(&_read_cb), mb::FileStatus::OK);
+        ASSERT_EQ(file._priv_func()->read_cb, &_read_cb);
+        ASSERT_EQ(file.set_write_callback(&_write_cb), mb::FileStatus::OK);
+        ASSERT_EQ(file._priv_func()->write_cb, &_write_cb);
+        ASSERT_EQ(file.set_seek_callback(&_seek_cb), mb::FileStatus::OK);
+        ASSERT_EQ(file._priv_func()->seek_cb, &_seek_cb);
+        ASSERT_EQ(file.set_truncate_callback(&_truncate_cb), mb::FileStatus::OK);
+        ASSERT_EQ(file._priv_func()->truncate_cb, &_truncate_cb);
+        ASSERT_EQ(file.set_callback_data(this), mb::FileStatus::OK);
+        ASSERT_EQ(file._priv_func()->cb_userdata, this);
     }
 
-    virtual ~FileTest()
-    {
-        mb_file_free(_file);
-    }
-
-    void set_all_callbacks()
-    {
-        ASSERT_EQ(mb_file_set_open_callback(_file, &_open_cb), MB_FILE_OK);
-        ASSERT_EQ(_file->open_cb, &_open_cb);
-        ASSERT_EQ(mb_file_set_close_callback(_file, &_close_cb), MB_FILE_OK);
-        ASSERT_EQ(_file->close_cb, &_close_cb);
-        ASSERT_EQ(mb_file_set_read_callback(_file, &_read_cb), MB_FILE_OK);
-        ASSERT_EQ(_file->read_cb, &_read_cb);
-        ASSERT_EQ(mb_file_set_write_callback(_file, &_write_cb), MB_FILE_OK);
-        ASSERT_EQ(_file->write_cb, &_write_cb);
-        ASSERT_EQ(mb_file_set_seek_callback(_file, &_seek_cb), MB_FILE_OK);
-        ASSERT_EQ(_file->seek_cb, &_seek_cb);
-        ASSERT_EQ(mb_file_set_truncate_callback(_file, &_truncate_cb), MB_FILE_OK);
-        ASSERT_EQ(_file->truncate_cb, &_truncate_cb);
-        ASSERT_EQ(mb_file_set_callback_data(_file, this), MB_FILE_OK);
-        ASSERT_EQ(_file->cb_userdata, this);
-    }
-
-    static int _open_cb(MbFile *file, void *userdata)
+    static mb::FileStatus _open_cb(mb::File &file, void *userdata)
     {
         (void) file;
 
@@ -78,13 +68,13 @@ struct FileTest : testing::Test
         ++test->_n_open;
 
         // Generate some data
-        for (int i = 0; i < INITIAL_BUF_SIZE; ++i) {
+        for (size_t i = 0; i < INITIAL_BUF_SIZE; ++i) {
             test->_buf.push_back('a' + (i % 26));
         }
-        return MB_FILE_OK;
+        return mb::FileStatus::OK;
     }
 
-    static int _close_cb(MbFile *file, void *userdata)
+    static mb::FileStatus _close_cb(mb::File &file, void *userdata)
     {
         (void) file;
 
@@ -92,12 +82,12 @@ struct FileTest : testing::Test
         ++test->_n_close;
 
         test->_buf.clear();
-        return MB_FILE_OK;
+        return mb::FileStatus::OK;
     }
 
-    static int _read_cb(MbFile *file, void *userdata,
-                        void *buf, size_t size,
-                        size_t *bytes_read)
+    static mb::FileStatus _read_cb(mb::File &file, void *userdata,
+                                   void *buf, size_t size,
+                                   size_t *bytes_read)
     {
         (void) file;
 
@@ -110,12 +100,12 @@ struct FileTest : testing::Test
         test->_position += n;
         *bytes_read = n;
 
-        return MB_FILE_OK;
+        return mb::FileStatus::OK;
     }
 
-    static int _write_cb(MbFile *file, void *userdata,
-                         const void *buf, size_t size,
-                         size_t *bytes_written)
+    static mb::FileStatus _write_cb(mb::File &file, void *userdata,
+                                    const void *buf, size_t size,
+                                    size_t *bytes_written)
     {
         (void) file;
 
@@ -131,12 +121,12 @@ struct FileTest : testing::Test
         test->_position += size;
         *bytes_written = size;
 
-        return MB_FILE_OK;
+        return mb::FileStatus::OK;
     }
 
-    static int _seek_cb(MbFile *file, void *userdata,
-                        int64_t offset, int whence,
-                        uint64_t *new_offset)
+    static mb::FileStatus _seek_cb(mb::File &file, void *userdata,
+                                   int64_t offset, int whence,
+                                   uint64_t *new_offset)
     {
         FileTest *test = static_cast<FileTest *>(userdata);
         ++test->_n_seek;
@@ -144,44 +134,44 @@ struct FileTest : testing::Test
         switch (whence) {
         case SEEK_SET:
             if (offset < 0) {
-                mb_file_set_error(file, MB_FILE_ERROR_INVALID_ARGUMENT,
-                                  "Invalid SEET_SET offset %" PRId64,
-                                  offset);
-                return MB_FILE_FAILED;
+                file.set_error(mb::FileError::INVALID_ARGUMENT,
+                               "Invalid SEET_SET offset %" PRId64,
+                               offset);
+                return mb::FileStatus::FAILED;
             }
             *new_offset = test->_position = offset;
             break;
         case SEEK_CUR:
             if (offset < 0 && static_cast<size_t>(-offset) > test->_position) {
-                mb_file_set_error(file, MB_FILE_ERROR_INVALID_ARGUMENT,
-                                  "Invalid SEEK_CUR offset %" PRId64
-                                  " for position %" MB_PRIzu,
-                                  offset, test->_position);
-                return MB_FILE_FAILED;
+                file.set_error(mb::FileError::INVALID_ARGUMENT,
+                               "Invalid SEEK_CUR offset %" PRId64
+                               " for position %" MB_PRIzu,
+                               offset, test->_position);
+                return mb::FileStatus::FAILED;
             }
             *new_offset = test->_position += offset;
             break;
         case SEEK_END:
             if (offset < 0 && static_cast<size_t>(-offset) > test->_buf.size()) {
-                mb_file_set_error(file, MB_FILE_ERROR_INVALID_ARGUMENT,
-                                  "Invalid SEEK_END offset %" PRId64
-                                  " for file of size %" MB_PRIzu,
-                                  offset, test->_buf.size());
-                return MB_FILE_FAILED;
+                file.set_error(mb::FileError::INVALID_ARGUMENT,
+                               "Invalid SEEK_END offset %" PRId64
+                               " for file of size %" MB_PRIzu,
+                               offset, test->_buf.size());
+                return mb::FileStatus::FAILED;
             }
             *new_offset = test->_position = test->_buf.size() + offset;
             break;
         default:
-            mb_file_set_error(file, MB_FILE_ERROR_INVALID_ARGUMENT,
-                              "Invalid whence argument: %d", whence);
-            return MB_FILE_FAILED;
+            file.set_error(mb::FileError::INVALID_ARGUMENT,
+                           "Invalid whence argument: %d", whence);
+            return mb::FileStatus::FAILED;
         }
 
-        return MB_FILE_OK;
+        return mb::FileStatus::OK;
     }
 
-    static int _truncate_cb(MbFile *file, void *userdata,
-                            uint64_t size)
+    static mb::FileStatus _truncate_cb(mb::File &file, void *userdata,
+                                       uint64_t size)
     {
         (void) file;
 
@@ -189,60 +179,54 @@ struct FileTest : testing::Test
         ++test->_n_truncate;
 
         test->_buf.resize(size);
-        return MB_FILE_OK;
+        return mb::FileStatus::OK;
     }
 };
 
+constexpr size_t FileTest::INITIAL_BUF_SIZE;
+
 TEST_F(FileTest, CheckInitialValues)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
-    ASSERT_EQ(_file->open_cb, nullptr);
-    ASSERT_EQ(_file->close_cb, nullptr);
-    ASSERT_EQ(_file->read_cb, nullptr);
-    ASSERT_EQ(_file->write_cb, nullptr);
-    ASSERT_EQ(_file->seek_cb, nullptr);
-    ASSERT_EQ(_file->truncate_cb, nullptr);
-    ASSERT_EQ(_file->cb_userdata, nullptr);
-    ASSERT_EQ(_file->error_code, MB_FILE_ERROR_NONE);
-    ASSERT_TRUE(_file->error_string.empty());
+    TestableFile file;
+
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::NEW);
+    ASSERT_EQ(file._priv_func()->open_cb, nullptr);
+    ASSERT_EQ(file._priv_func()->close_cb, nullptr);
+    ASSERT_EQ(file._priv_func()->read_cb, nullptr);
+    ASSERT_EQ(file._priv_func()->write_cb, nullptr);
+    ASSERT_EQ(file._priv_func()->seek_cb, nullptr);
+    ASSERT_EQ(file._priv_func()->truncate_cb, nullptr);
+    ASSERT_EQ(file._priv_func()->cb_userdata, nullptr);
+    ASSERT_EQ(file._priv_func()->error_code, mb::FileError::NONE);
+    ASSERT_TRUE(file._priv_func()->error_string.empty());
 }
 
 TEST_F(FileTest, CheckStatesNormal)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
+
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::NEW);
 
     // Set callbacks
-    set_all_callbacks();
+    set_all_callbacks(file);
 
     // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.open(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_open, 1);
 
     // Close file
-    ASSERT_EQ(mb_file_close(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::CLOSED);
+    ASSERT_EQ(file.close(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::CLOSED);
     ASSERT_EQ(_n_close, 1);
-}
-
-TEST_F(FileTest, FreeNewFile)
-{
-    ASSERT_EQ(_file->state, MbFileState::NEW);
-
-    // Free file
-    ASSERT_EQ(mb_file_free(_file), MB_FILE_OK);
-    _file = nullptr;
 }
 
 TEST_F(FileTest, FreeNewFileWithRegisteredCallbacks)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
-
-    set_all_callbacks();
-
-    // Free file
-    ASSERT_EQ(mb_file_free(_file), MB_FILE_OK);
-    _file = nullptr;
+    {
+        TestableFile file;
+        set_all_callbacks(file);
+    }
 
     // The close callback should not have been called because nothing was opened
     ASSERT_EQ(_n_close, 0);
@@ -250,19 +234,17 @@ TEST_F(FileTest, FreeNewFileWithRegisteredCallbacks)
 
 TEST_F(FileTest, FreeOpenedFile)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    {
+        TestableFile file;
 
-    // Set callbacks
-    set_all_callbacks();
+        // Set callbacks
+        set_all_callbacks(file);
 
-    // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
-    ASSERT_EQ(_n_open, 1);
-
-    // Free file
-    ASSERT_EQ(mb_file_free(_file), MB_FILE_OK);
-    _file = nullptr;
+        // Open file
+        ASSERT_EQ(file.open(), mb::FileStatus::OK);
+        ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
+        ASSERT_EQ(_n_open, 1);
+    }
 
     // Ensure that the close callback was called
     ASSERT_EQ(_n_close, 1);
@@ -270,24 +252,22 @@ TEST_F(FileTest, FreeOpenedFile)
 
 TEST_F(FileTest, FreeClosedFile)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    {
+        TestableFile file;
 
-    // Set callbacks
-    set_all_callbacks();
+        // Set callbacks
+        set_all_callbacks(file);
 
-    // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
-    ASSERT_EQ(_n_open, 1);
+        // Open file
+        ASSERT_EQ(file.open(), mb::FileStatus::OK);
+        ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
+        ASSERT_EQ(_n_open, 1);
 
-    // Close file
-    ASSERT_EQ(mb_file_close(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::CLOSED);
-    ASSERT_EQ(_n_close, 1);
-
-    // Free file
-    ASSERT_EQ(mb_file_free(_file), MB_FILE_OK);
-    _file = nullptr;
+        // Close file
+        ASSERT_EQ(file.close(), mb::FileStatus::OK);
+        ASSERT_EQ(file._priv_func()->state, mb::FileState::CLOSED);
+        ASSERT_EQ(_n_close, 1);
+    }
 
     // Ensure that the close callback was not called again
     ASSERT_EQ(_n_close, 1);
@@ -295,40 +275,38 @@ TEST_F(FileTest, FreeClosedFile)
 
 TEST_F(FileTest, FreeFatalFile)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    {
+        TestableFile file;
 
-    // Set callbacks
-    set_all_callbacks();
+        // Set callbacks
+        set_all_callbacks(file);
 
-    // Set read callback to return fatal error
-    auto fatal_open_cb = [](MbFile *file, void *userdata,
-                            void *buf, size_t size,
-                            size_t *bytes_read) -> int {
-        (void) file;
-        (void) buf;
-        (void) size;
-        (void) bytes_read;
-        FileTest *test = static_cast<FileTest *>(userdata);
-        ++test->_n_read;
-        return MB_FILE_FATAL;
-    };
-    ASSERT_EQ(mb_file_set_read_callback(_file, fatal_open_cb), MB_FILE_OK);
+        // Set read callback to return fatal error
+        auto fatal_open_cb = [](mb::File &file, void *userdata,
+                                void *buf, size_t size,
+                                size_t *bytes_read) -> mb::FileStatus {
+            (void) file;
+            (void) buf;
+            (void) size;
+            (void) bytes_read;
+            FileTest *test = static_cast<FileTest *>(userdata);
+            ++test->_n_read;
+            return mb::FileStatus::FATAL;
+        };
+        ASSERT_EQ(file.set_read_callback(fatal_open_cb), mb::FileStatus::OK);
 
-    // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
-    ASSERT_EQ(_n_open, 1);
+        // Open file
+        ASSERT_EQ(file.open(), mb::FileStatus::OK);
+        ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
+        ASSERT_EQ(_n_open, 1);
 
-    // Read file
-    char c;
-    size_t n;
-    ASSERT_EQ(mb_file_read(_file, &c, 1, &n), MB_FILE_FATAL);
-    ASSERT_EQ(_file->state, MbFileState::FATAL);
-    ASSERT_EQ(_n_read, 1);
-
-    // Free file
-    ASSERT_EQ(mb_file_free(_file), MB_FILE_OK);
-    _file = nullptr;
+        // Read file
+        char c;
+        size_t n;
+        ASSERT_EQ(file.read(&c, 1, &n), mb::FileStatus::FATAL);
+        ASSERT_EQ(file._priv_func()->state, mb::FileState::FATAL);
+        ASSERT_EQ(_n_read, 1);
+    }
 
     // Ensure that the close callback was called
     ASSERT_EQ(_n_close, 1);
@@ -336,93 +314,93 @@ TEST_F(FileTest, FreeFatalFile)
 
 TEST_F(FileTest, SetCallbacksInNonNewState)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Set callbacks
-    set_all_callbacks();
+    set_all_callbacks(file);
 
     // Open file
-    ASSERT_EQ(_buf.size(), 0);
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(_buf.size(), 0u);
+    ASSERT_EQ(file.open(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_buf.size(), INITIAL_BUF_SIZE);
     ASSERT_EQ(_n_open, 1);
 
-    ASSERT_EQ(mb_file_set_open_callback(_file, nullptr), MB_FILE_FATAL);
-    ASSERT_NE(_file->open_cb, nullptr);
-    ASSERT_EQ(_file->state, MbFileState::FATAL);
-    ASSERT_EQ(_file->error_code, MB_FILE_ERROR_PROGRAMMER_ERROR);
-    ASSERT_NE(_file->error_string.find("mb_file_set_open_callback"), std::string::npos);
-    ASSERT_NE(_file->error_string.find("Invalid state"), std::string::npos);
+    ASSERT_EQ(file.set_open_callback(nullptr), mb::FileStatus::FATAL);
+    ASSERT_NE(file._priv_func()->open_cb, nullptr);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::FATAL);
+    ASSERT_EQ(file._priv_func()->error_code, mb::FileError::PROGRAMMER_ERROR);
+    ASSERT_NE(file._priv_func()->error_string.find("set_open_callback"), std::string::npos);
+    ASSERT_NE(file._priv_func()->error_string.find("Invalid state"), std::string::npos);
 
-    ASSERT_EQ(mb_file_set_close_callback(_file, nullptr), MB_FILE_FATAL);
-    ASSERT_NE(_file->close_cb, nullptr);
-    ASSERT_EQ(_file->state, MbFileState::FATAL);
-    ASSERT_EQ(_file->error_code, MB_FILE_ERROR_PROGRAMMER_ERROR);
-    ASSERT_NE(_file->error_string.find("mb_file_set_close_callback"), std::string::npos);
-    ASSERT_NE(_file->error_string.find("Invalid state"), std::string::npos);
+    ASSERT_EQ(file.set_close_callback(nullptr), mb::FileStatus::FATAL);
+    ASSERT_NE(file._priv_func()->close_cb, nullptr);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::FATAL);
+    ASSERT_EQ(file._priv_func()->error_code, mb::FileError::PROGRAMMER_ERROR);
+    ASSERT_NE(file._priv_func()->error_string.find("set_close_callback"), std::string::npos);
+    ASSERT_NE(file._priv_func()->error_string.find("Invalid state"), std::string::npos);
 
-    ASSERT_EQ(mb_file_set_read_callback(_file, nullptr), MB_FILE_FATAL);
-    ASSERT_NE(_file->read_cb, nullptr);
-    ASSERT_EQ(_file->state, MbFileState::FATAL);
-    ASSERT_EQ(_file->error_code, MB_FILE_ERROR_PROGRAMMER_ERROR);
-    ASSERT_NE(_file->error_string.find("mb_file_set_read_callback"), std::string::npos);
-    ASSERT_NE(_file->error_string.find("Invalid state"), std::string::npos);
+    ASSERT_EQ(file.set_read_callback(nullptr), mb::FileStatus::FATAL);
+    ASSERT_NE(file._priv_func()->read_cb, nullptr);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::FATAL);
+    ASSERT_EQ(file._priv_func()->error_code, mb::FileError::PROGRAMMER_ERROR);
+    ASSERT_NE(file._priv_func()->error_string.find("set_read_callback"), std::string::npos);
+    ASSERT_NE(file._priv_func()->error_string.find("Invalid state"), std::string::npos);
 
-    ASSERT_EQ(mb_file_set_write_callback(_file, nullptr), MB_FILE_FATAL);
-    ASSERT_NE(_file->write_cb, nullptr);
-    ASSERT_EQ(_file->state, MbFileState::FATAL);
-    ASSERT_EQ(_file->error_code, MB_FILE_ERROR_PROGRAMMER_ERROR);
-    ASSERT_NE(_file->error_string.find("mb_file_set_write_callback"), std::string::npos);
-    ASSERT_NE(_file->error_string.find("Invalid state"), std::string::npos);
+    ASSERT_EQ(file.set_write_callback(nullptr), mb::FileStatus::FATAL);
+    ASSERT_NE(file._priv_func()->write_cb, nullptr);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::FATAL);
+    ASSERT_EQ(file._priv_func()->error_code, mb::FileError::PROGRAMMER_ERROR);
+    ASSERT_NE(file._priv_func()->error_string.find("set_write_callback"), std::string::npos);
+    ASSERT_NE(file._priv_func()->error_string.find("Invalid state"), std::string::npos);
 
-    ASSERT_EQ(mb_file_set_seek_callback(_file, nullptr), MB_FILE_FATAL);
-    ASSERT_NE(_file->seek_cb, nullptr);
-    ASSERT_EQ(_file->state, MbFileState::FATAL);
-    ASSERT_EQ(_file->error_code, MB_FILE_ERROR_PROGRAMMER_ERROR);
-    ASSERT_NE(_file->error_string.find("mb_file_set_seek_callback"), std::string::npos);
-    ASSERT_NE(_file->error_string.find("Invalid state"), std::string::npos);
+    ASSERT_EQ(file.set_seek_callback(nullptr), mb::FileStatus::FATAL);
+    ASSERT_NE(file._priv_func()->seek_cb, nullptr);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::FATAL);
+    ASSERT_EQ(file._priv_func()->error_code, mb::FileError::PROGRAMMER_ERROR);
+    ASSERT_NE(file._priv_func()->error_string.find("set_seek_callback"), std::string::npos);
+    ASSERT_NE(file._priv_func()->error_string.find("Invalid state"), std::string::npos);
 
-    ASSERT_EQ(mb_file_set_truncate_callback(_file, nullptr), MB_FILE_FATAL);
-    ASSERT_NE(_file->truncate_cb, nullptr);
-    ASSERT_EQ(_file->state, MbFileState::FATAL);
-    ASSERT_EQ(_file->error_code, MB_FILE_ERROR_PROGRAMMER_ERROR);
-    ASSERT_NE(_file->error_string.find("mb_file_set_truncate_callback"), std::string::npos);
-    ASSERT_NE(_file->error_string.find("Invalid state"), std::string::npos);
+    ASSERT_EQ(file.set_truncate_callback(nullptr), mb::FileStatus::FATAL);
+    ASSERT_NE(file._priv_func()->truncate_cb, nullptr);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::FATAL);
+    ASSERT_EQ(file._priv_func()->error_code, mb::FileError::PROGRAMMER_ERROR);
+    ASSERT_NE(file._priv_func()->error_string.find("set_truncate_callback"), std::string::npos);
+    ASSERT_NE(file._priv_func()->error_string.find("Invalid state"), std::string::npos);
 
-    ASSERT_EQ(mb_file_set_callback_data(_file, nullptr), MB_FILE_FATAL);
-    ASSERT_NE(_file->cb_userdata, nullptr);
-    ASSERT_EQ(_file->state, MbFileState::FATAL);
-    ASSERT_EQ(_file->error_code, MB_FILE_ERROR_PROGRAMMER_ERROR);
-    ASSERT_NE(_file->error_string.find("mb_file_set_callback_data"), std::string::npos);
-    ASSERT_NE(_file->error_string.find("Invalid state"), std::string::npos);
+    ASSERT_EQ(file.set_callback_data(nullptr), mb::FileStatus::FATAL);
+    ASSERT_NE(file._priv_func()->cb_userdata, nullptr);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::FATAL);
+    ASSERT_EQ(file._priv_func()->error_code, mb::FileError::PROGRAMMER_ERROR);
+    ASSERT_NE(file._priv_func()->error_string.find("set_callback_data"), std::string::npos);
+    ASSERT_NE(file._priv_func()->error_string.find("Invalid state"), std::string::npos);
 }
 
 TEST_F(FileTest, OpenReturnNonFatalFailure)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Set callbacks
-    set_all_callbacks();
+    set_all_callbacks(file);
 
     // Set open callback
-    auto open_cb = [](MbFile *file, void *userdata) -> int {
+    auto open_cb = [](mb::File &file, void *userdata) -> mb::FileStatus {
         (void) file;
         FileTest *test = static_cast<FileTest *>(userdata);
         ++test->_n_open;
-        return MB_FILE_FAILED;
+        return mb::FileStatus::FAILED;
     };
-    ASSERT_EQ(mb_file_set_open_callback(_file, open_cb), MB_FILE_OK);
+    ASSERT_EQ(file.set_open_callback(open_cb), mb::FileStatus::OK);
 
     // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_FAILED);
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    ASSERT_EQ(file.open(), mb::FileStatus::FAILED);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::NEW);
     ASSERT_EQ(_n_open, 1);
 
     // Reopen file
-    ASSERT_EQ(mb_file_set_open_callback(_file, &_open_cb), MB_FILE_OK);
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.set_open_callback(&_open_cb), mb::FileStatus::OK);
+    ASSERT_EQ(file.open(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_open, 2);
 
     // The close callback should have been called to clean up resources
@@ -431,23 +409,23 @@ TEST_F(FileTest, OpenReturnNonFatalFailure)
 
 TEST_F(FileTest, OpenReturnFatalFailure)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Set callbacks
-    set_all_callbacks();
+    set_all_callbacks(file);
 
     // Set open callback
-    auto open_cb = [](MbFile *file, void *userdata) -> int {
+    auto open_cb = [](mb::File &file, void *userdata) -> mb::FileStatus {
         (void) file;
         FileTest *test = static_cast<FileTest *>(userdata);
         ++test->_n_open;
-        return MB_FILE_FATAL;
+        return mb::FileStatus::FATAL;
     };
-    ASSERT_EQ(mb_file_set_open_callback(_file, open_cb), MB_FILE_OK);
+    ASSERT_EQ(file.set_open_callback(open_cb), mb::FileStatus::OK);
 
     // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_FATAL);
-    ASSERT_EQ(_file->state, MbFileState::FATAL);
+    ASSERT_EQ(file.open(), mb::FileStatus::FATAL);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::FATAL);
     ASSERT_EQ(_n_open, 1);
 
     // The close callback should have been called to clean up resources
@@ -456,166 +434,166 @@ TEST_F(FileTest, OpenReturnFatalFailure)
 
 TEST_F(FileTest, OpenFileTwice)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Set callbacks
-    set_all_callbacks();
+    set_all_callbacks(file);
 
     // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.open(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_open, 1);
 
     // Open again
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_FATAL);
-    ASSERT_EQ(_file->error_code, MB_FILE_ERROR_PROGRAMMER_ERROR);
-    ASSERT_NE(_file->error_string.find("mb_file_open"), std::string::npos);
-    ASSERT_NE(_file->error_string.find("Invalid state"), std::string::npos);
+    ASSERT_EQ(file.open(), mb::FileStatus::FATAL);
+    ASSERT_EQ(file._priv_func()->error_code, mb::FileError::PROGRAMMER_ERROR);
+    ASSERT_NE(file._priv_func()->error_string.find("open"), std::string::npos);
+    ASSERT_NE(file._priv_func()->error_string.find("Invalid state"), std::string::npos);
     ASSERT_EQ(_n_open, 1);
 }
 
 TEST_F(FileTest, OpenNoCallback)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Set callbacks
-    set_all_callbacks();
+    set_all_callbacks(file);
 
     // Clear open callback
-    ASSERT_EQ(mb_file_set_open_callback(_file, nullptr), MB_FILE_OK);
+    ASSERT_EQ(file.set_open_callback(nullptr), mb::FileStatus::OK);
 
     // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.open(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_open, 0);
 }
 
 TEST_F(FileTest, CloseNewFile)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
-    set_all_callbacks();
+    set_all_callbacks(file);
 
-    ASSERT_EQ(mb_file_close(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::CLOSED);
+    ASSERT_EQ(file.close(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::CLOSED);
     ASSERT_EQ(_n_close, 0);
 }
 
 TEST_F(FileTest, CloseFileTwice)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Set callbacks
-    set_all_callbacks();
+    set_all_callbacks(file);
 
     // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.open(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_open, 1);
 
     // Close file
-    ASSERT_EQ(mb_file_close(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::CLOSED);
+    ASSERT_EQ(file.close(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::CLOSED);
     ASSERT_EQ(_n_close, 1);
 
     // Close file again
-    ASSERT_EQ(mb_file_close(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::CLOSED);
+    ASSERT_EQ(file.close(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::CLOSED);
     ASSERT_EQ(_n_close, 1);
 }
 
 TEST_F(FileTest, CloseNoCallback)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Set callbacks
-    set_all_callbacks();
+    set_all_callbacks(file);
 
     // Clear close callback
-    mb_file_set_close_callback(_file, nullptr);
+    file.set_close_callback(nullptr);
 
     // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.open(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_open, 1);
 
     // Close file
-    ASSERT_EQ(mb_file_close(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::CLOSED);
+    ASSERT_EQ(file.close(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::CLOSED);
     ASSERT_EQ(_n_close, 0);
 }
 
 TEST_F(FileTest, CloseReturnNonFatalFailure)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Set callbacks
-    set_all_callbacks();
+    set_all_callbacks(file);
 
     // Set open callback
-    auto close_cb = [](MbFile *file, void *userdata) -> int {
+    auto close_cb = [](mb::File &file, void *userdata) -> mb::FileStatus {
         (void) file;
         FileTest *test = static_cast<FileTest *>(userdata);
         ++test->_n_close;
-        return MB_FILE_FAILED;
+        return mb::FileStatus::FAILED;
     };
-    ASSERT_EQ(mb_file_set_close_callback(_file, close_cb), MB_FILE_OK);
+    ASSERT_EQ(file.set_close_callback(close_cb), mb::FileStatus::OK);
 
     // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.open(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_open, 1);
 
     // Close file
-    ASSERT_EQ(mb_file_close(_file), MB_FILE_FAILED);
-    ASSERT_EQ(_file->state, MbFileState::CLOSED);
+    ASSERT_EQ(file.close(), mb::FileStatus::FAILED);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::CLOSED);
     ASSERT_EQ(_n_close, 1);
 }
 
 TEST_F(FileTest, CloseReturnFatalFailure)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Set callbacks
-    set_all_callbacks();
+    set_all_callbacks(file);
 
     // Set open callback
-    auto close_cb = [](MbFile *file, void *userdata) -> int {
+    auto close_cb = [](mb::File &file, void *userdata) -> mb::FileStatus {
         (void) file;
         FileTest *test = static_cast<FileTest *>(userdata);
         ++test->_n_close;
-        return MB_FILE_FATAL;
+        return mb::FileStatus::FATAL;
     };
-    ASSERT_EQ(mb_file_set_close_callback(_file, close_cb), MB_FILE_OK);
+    ASSERT_EQ(file.set_close_callback(close_cb), mb::FileStatus::OK);
 
     // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.open(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_open, 1);
 
     // Close file
-    ASSERT_EQ(mb_file_close(_file), MB_FILE_FATAL);
-    // mb_file_close() always results in the state changing to CLOSED
-    ASSERT_EQ(_file->state, MbFileState::CLOSED);
+    ASSERT_EQ(file.close(), mb::FileStatus::FATAL);
+    // File::close() always results in the state changing to CLOSED
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::CLOSED);
     ASSERT_EQ(_n_close, 1);
 }
 
 TEST_F(FileTest, ReadCallbackCalled)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Set callbacks
-    set_all_callbacks();
+    set_all_callbacks(file);
 
     // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.open(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_open, 1);
 
     // Read from file
     char buf[10];
     size_t n;
-    ASSERT_EQ(mb_file_read(_file, buf, sizeof(buf), &n), MB_FILE_OK);
+    ASSERT_EQ(file.read(buf, sizeof(buf), &n), mb::FileStatus::OK);
     ASSERT_EQ(n, sizeof(buf));
     ASSERT_EQ(memcmp(buf, _buf.data(), sizeof(buf)), 0);
     ASSERT_EQ(_n_read, 1);
@@ -623,152 +601,152 @@ TEST_F(FileTest, ReadCallbackCalled)
 
 TEST_F(FileTest, ReadInWrongState)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Read from file
     char c;
     size_t n;
-    ASSERT_EQ(mb_file_read(_file, &c, 1, &n), MB_FILE_FATAL);
-    ASSERT_EQ(_file->state, MbFileState::FATAL);
-    ASSERT_EQ(_file->error_code, MB_FILE_ERROR_PROGRAMMER_ERROR);
-    ASSERT_NE(_file->error_string.find("mb_file_read"), std::string::npos);
-    ASSERT_NE(_file->error_string.find("Invalid state"), std::string::npos);
+    ASSERT_EQ(file.read(&c, 1, &n), mb::FileStatus::FATAL);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::FATAL);
+    ASSERT_EQ(file._priv_func()->error_code, mb::FileError::PROGRAMMER_ERROR);
+    ASSERT_NE(file._priv_func()->error_string.find("read"), std::string::npos);
+    ASSERT_NE(file._priv_func()->error_string.find("Invalid state"), std::string::npos);
     ASSERT_EQ(_n_read, 0);
 }
 
 TEST_F(FileTest, ReadWithNullBytesReadParam)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Set callbacks
-    set_all_callbacks();
+    set_all_callbacks(file);
 
     // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.open(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_open, 1);
 
     // Read from file
     char c;
-    ASSERT_EQ(mb_file_read(_file, &c, 1, nullptr), MB_FILE_FATAL);
-    ASSERT_EQ(_file->state, MbFileState::FATAL);
-    ASSERT_EQ(_file->error_code, MB_FILE_ERROR_PROGRAMMER_ERROR);
-    ASSERT_NE(_file->error_string.find("mb_file_read"), std::string::npos);
-    ASSERT_NE(_file->error_string.find("is NULL"), std::string::npos);
+    ASSERT_EQ(file.read(&c, 1, nullptr), mb::FileStatus::FATAL);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::FATAL);
+    ASSERT_EQ(file._priv_func()->error_code, mb::FileError::PROGRAMMER_ERROR);
+    ASSERT_NE(file._priv_func()->error_string.find("read"), std::string::npos);
+    ASSERT_NE(file._priv_func()->error_string.find("is NULL"), std::string::npos);
     ASSERT_EQ(_n_read, 0);
 }
 
 TEST_F(FileTest, ReadNoCallback)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Set callbacks
-    set_all_callbacks();
+    set_all_callbacks(file);
 
     // Clear read callback
-    mb_file_set_read_callback(_file, nullptr);
+    file.set_read_callback(nullptr);
 
     // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.open(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_open, 1);
 
     // Read from file
     char c;
     size_t n;
-    ASSERT_EQ(mb_file_read(_file, &c, 1, &n), MB_FILE_UNSUPPORTED);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
-    ASSERT_EQ(_file->error_code, MB_FILE_ERROR_UNSUPPORTED);
-    ASSERT_NE(_file->error_string.find("mb_file_read"), std::string::npos);
-    ASSERT_NE(_file->error_string.find("read callback"), std::string::npos);
+    ASSERT_EQ(file.read(&c, 1, &n), mb::FileStatus::UNSUPPORTED);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
+    ASSERT_EQ(file._priv_func()->error_code, mb::FileError::UNSUPPORTED);
+    ASSERT_NE(file._priv_func()->error_string.find("read"), std::string::npos);
+    ASSERT_NE(file._priv_func()->error_string.find("read callback"), std::string::npos);
     ASSERT_EQ(_n_read, 0);
 }
 
 TEST_F(FileTest, ReadReturnNonFatalFailure)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Set callbacks
-    set_all_callbacks();
+    set_all_callbacks(file);
 
     // Set read callback
-    auto read_cb = [](MbFile *file, void *userdata,
+    auto read_cb = [](mb::File &file, void *userdata,
                       void *buf, size_t size,
-                      size_t *bytes_read) -> int {
+                      size_t *bytes_read) -> mb::FileStatus {
         (void) file;
         (void) buf;
         (void) size;
         (void) bytes_read;
         FileTest *test = static_cast<FileTest *>(userdata);
         ++test->_n_read;
-        return MB_FILE_FAILED;
+        return mb::FileStatus::FAILED;
     };
-    ASSERT_EQ(mb_file_set_read_callback(_file, read_cb), MB_FILE_OK);
+    ASSERT_EQ(file.set_read_callback(read_cb), mb::FileStatus::OK);
 
     // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.open(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_open, 1);
 
     // Read from file
     char c;
     size_t n;
-    ASSERT_EQ(mb_file_read(_file, &c, 1, &n), MB_FILE_FAILED);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.read(&c, 1, &n), mb::FileStatus::FAILED);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_read, 1);
 }
 
 TEST_F(FileTest, ReadReturnFatalFailure)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Set callbacks
-    set_all_callbacks();
+    set_all_callbacks(file);
 
     // Set read callback
-    auto read_cb = [](MbFile *file, void *userdata,
+    auto read_cb = [](mb::File &file, void *userdata,
                       void *buf, size_t size,
-                      size_t *bytes_read) -> int {
+                      size_t *bytes_read) -> mb::FileStatus {
         (void) file;
         (void) buf;
         (void) size;
         (void) bytes_read;
         FileTest *test = static_cast<FileTest *>(userdata);
         ++test->_n_read;
-        return MB_FILE_FATAL;
+        return mb::FileStatus::FATAL;
     };
-    ASSERT_EQ(mb_file_set_read_callback(_file, read_cb), MB_FILE_OK);
+    ASSERT_EQ(file.set_read_callback(read_cb), mb::FileStatus::OK);
 
     // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.open(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_open, 1);
 
     // Read from file
     char c;
     size_t n;
-    ASSERT_EQ(mb_file_read(_file, &c, 1, &n), MB_FILE_FATAL);
-    ASSERT_EQ(_file->state, MbFileState::FATAL);
+    ASSERT_EQ(file.read(&c, 1, &n), mb::FileStatus::FATAL);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::FATAL);
     ASSERT_EQ(_n_read, 1);
 }
 
 TEST_F(FileTest, WriteCallbackCalled)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Set callbacks
-    set_all_callbacks();
+    set_all_callbacks(file);
 
     // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.open(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_open, 1);
 
     // Write to file
     char buf[] = "Hello, world!";
     size_t size = strlen(buf);
     size_t n;
-    ASSERT_EQ(mb_file_write(_file, buf, size, &n), MB_FILE_OK);
+    ASSERT_EQ(file.write(buf, size, &n), mb::FileStatus::OK);
     ASSERT_EQ(n, size);
     ASSERT_EQ(memcmp(buf, _buf.data(), size), 0);
     ASSERT_EQ(_n_write, 1);
@@ -776,381 +754,382 @@ TEST_F(FileTest, WriteCallbackCalled)
 
 TEST_F(FileTest, WriteInWrongState)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Write to file
     char c;
     size_t n;
-    ASSERT_EQ(mb_file_write(_file, &c, 1, &n), MB_FILE_FATAL);
-    ASSERT_EQ(_file->state, MbFileState::FATAL);
-    ASSERT_EQ(_file->error_code, MB_FILE_ERROR_PROGRAMMER_ERROR);
-    ASSERT_NE(_file->error_string.find("mb_file_write"), std::string::npos);
-    ASSERT_NE(_file->error_string.find("Invalid state"), std::string::npos);
+    ASSERT_EQ(file.write(&c, 1, &n), mb::FileStatus::FATAL);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::FATAL);
+    ASSERT_EQ(file._priv_func()->error_code, mb::FileError::PROGRAMMER_ERROR);
+    ASSERT_NE(file._priv_func()->error_string.find("write"), std::string::npos);
+    ASSERT_NE(file._priv_func()->error_string.find("Invalid state"), std::string::npos);
     ASSERT_EQ(_n_write, 0);
 }
 
 TEST_F(FileTest, WriteWithNullBytesReadParam)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Set callbacks
-    set_all_callbacks();
+    set_all_callbacks(file);
 
     // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.open(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_open, 1);
 
     // Write to file
-    ASSERT_EQ(mb_file_write(_file, "x", 1, nullptr), MB_FILE_FATAL);
-    ASSERT_EQ(_file->state, MbFileState::FATAL);
-    ASSERT_EQ(_file->error_code, MB_FILE_ERROR_PROGRAMMER_ERROR);
-    ASSERT_NE(_file->error_string.find("mb_file_write"), std::string::npos);
-    ASSERT_NE(_file->error_string.find("is NULL"), std::string::npos);
+    ASSERT_EQ(file.write("x", 1, nullptr), mb::FileStatus::FATAL);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::FATAL);
+    ASSERT_EQ(file._priv_func()->error_code, mb::FileError::PROGRAMMER_ERROR);
+    ASSERT_NE(file._priv_func()->error_string.find("write"), std::string::npos);
+    ASSERT_NE(file._priv_func()->error_string.find("is NULL"), std::string::npos);
     ASSERT_EQ(_n_write, 0);
 }
 
 TEST_F(FileTest, WriteNoCallback)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Set callbacks
-    set_all_callbacks();
+    set_all_callbacks(file);
 
     // Clear write callback
-    mb_file_set_write_callback(_file, nullptr);
+    file.set_write_callback(nullptr);
 
     // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.open(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_open, 1);
 
     // Write to file
     size_t n;
-    ASSERT_EQ(mb_file_write(_file, "x", 1, &n), MB_FILE_UNSUPPORTED);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
-    ASSERT_EQ(_file->error_code, MB_FILE_ERROR_UNSUPPORTED);
-    ASSERT_NE(_file->error_string.find("mb_file_write"), std::string::npos);
-    ASSERT_NE(_file->error_string.find("write callback"), std::string::npos);
+    ASSERT_EQ(file.write("x", 1, &n), mb::FileStatus::UNSUPPORTED);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
+    ASSERT_EQ(file._priv_func()->error_code, mb::FileError::UNSUPPORTED);
+    ASSERT_NE(file._priv_func()->error_string.find("write"), std::string::npos);
+    ASSERT_NE(file._priv_func()->error_string.find("write callback"), std::string::npos);
     ASSERT_EQ(_n_write, 0);
 }
 
 TEST_F(FileTest, WriteReturnNonFatalFailure)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Set callbacks
-    set_all_callbacks();
+    set_all_callbacks(file);
 
     // Set write callback
-    auto write_cb = [](MbFile *file, void *userdata,
+    auto write_cb = [](mb::File &file, void *userdata,
                        const void *buf, size_t size,
-                       size_t *bytes_written) -> int {
+                       size_t *bytes_written) -> mb::FileStatus {
         (void) file;
         (void) buf;
         (void) size;
         (void) bytes_written;
         FileTest *test = static_cast<FileTest *>(userdata);
         ++test->_n_write;
-        return MB_FILE_FAILED;
+        return mb::FileStatus::FAILED;
     };
-    ASSERT_EQ(mb_file_set_write_callback(_file, write_cb), MB_FILE_OK);
+    ASSERT_EQ(file.set_write_callback(write_cb), mb::FileStatus::OK);
 
     // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.open(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_open, 1);
 
     // Write to file
     size_t n;
-    ASSERT_EQ(mb_file_write(_file, "x", 1, &n), MB_FILE_FAILED);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.write("x", 1, &n), mb::FileStatus::FAILED);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_write, 1);
 }
 
 TEST_F(FileTest, WriteReturnFatalFailure)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Set callbacks
-    set_all_callbacks();
+    set_all_callbacks(file);
 
     // Set write callback
-    auto write_cb = [](MbFile *file, void *userdata,
+    auto write_cb = [](mb::File &file, void *userdata,
                       const void *buf, size_t size,
-                      size_t *bytes_written) -> int {
+                      size_t *bytes_written) -> mb::FileStatus {
         (void) file;
         (void) buf;
         (void) size;
         (void) bytes_written;
         FileTest *test = static_cast<FileTest *>(userdata);
         ++test->_n_write;
-        return MB_FILE_FATAL;
+        return mb::FileStatus::FATAL;
     };
-    ASSERT_EQ(mb_file_set_write_callback(_file, write_cb), MB_FILE_OK);
+    ASSERT_EQ(file.set_write_callback(write_cb), mb::FileStatus::OK);
 
     // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.open(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_open, 1);
 
     // Write to file
     char c;
     size_t n;
-    ASSERT_EQ(mb_file_write(_file, &c, 1, &n), MB_FILE_FATAL);
-    ASSERT_EQ(_file->state, MbFileState::FATAL);
+    ASSERT_EQ(file.write(&c, 1, &n), mb::FileStatus::FATAL);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::FATAL);
     ASSERT_EQ(_n_write, 1);
 }
 
 TEST_F(FileTest, SeekCallbackCalled)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Set callbacks
-    set_all_callbacks();
+    set_all_callbacks(file);
 
     // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.open(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_open, 1);
 
     // Seek file
     uint64_t pos;
-    ASSERT_EQ(mb_file_seek(_file, 0, SEEK_END, &pos), MB_FILE_OK);
+    ASSERT_EQ(file.seek(0, SEEK_END, &pos), mb::FileStatus::OK);
     ASSERT_EQ(pos, _buf.size());
     ASSERT_EQ(pos, _position);
     ASSERT_EQ(_n_seek, 1);
 
     // Seek again with NULL offset output parameter
-    ASSERT_EQ(mb_file_seek(_file, -10, SEEK_END, nullptr), MB_FILE_OK);
+    ASSERT_EQ(file.seek(-10, SEEK_END, nullptr), mb::FileStatus::OK);
     ASSERT_EQ(_position, _buf.size() - 10);
     ASSERT_EQ(_n_seek, 2);
 }
 
 TEST_F(FileTest, SeekInWrongState)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Seek file
-    ASSERT_EQ(mb_file_seek(_file, 0, SEEK_END, nullptr), MB_FILE_FATAL);
-    ASSERT_EQ(_file->state, MbFileState::FATAL);
-    ASSERT_EQ(_file->error_code, MB_FILE_ERROR_PROGRAMMER_ERROR);
-    ASSERT_NE(_file->error_string.find("mb_file_seek"), std::string::npos);
-    ASSERT_NE(_file->error_string.find("Invalid state"), std::string::npos);
+    ASSERT_EQ(file.seek(0, SEEK_END, nullptr), mb::FileStatus::FATAL);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::FATAL);
+    ASSERT_EQ(file._priv_func()->error_code, mb::FileError::PROGRAMMER_ERROR);
+    ASSERT_NE(file._priv_func()->error_string.find("seek"), std::string::npos);
+    ASSERT_NE(file._priv_func()->error_string.find("Invalid state"), std::string::npos);
     ASSERT_EQ(_n_seek, 0);
 }
 
 TEST_F(FileTest, SeekNoCallback)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Set callbacks
-    set_all_callbacks();
+    set_all_callbacks(file);
 
     // Clear seek callback
-    mb_file_set_seek_callback(_file, nullptr);
+    file.set_seek_callback(nullptr);
 
     // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.open(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_open, 1);
 
     // Seek file
-    ASSERT_EQ(mb_file_seek(_file, 0, SEEK_END, nullptr), MB_FILE_UNSUPPORTED);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
-    ASSERT_EQ(_file->error_code, MB_FILE_ERROR_UNSUPPORTED);
-    ASSERT_NE(_file->error_string.find("mb_file_seek"), std::string::npos);
-    ASSERT_NE(_file->error_string.find("seek callback"), std::string::npos);
+    ASSERT_EQ(file.seek(0, SEEK_END, nullptr), mb::FileStatus::UNSUPPORTED);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
+    ASSERT_EQ(file._priv_func()->error_code, mb::FileError::UNSUPPORTED);
+    ASSERT_NE(file._priv_func()->error_string.find("seek"), std::string::npos);
+    ASSERT_NE(file._priv_func()->error_string.find("seek callback"), std::string::npos);
     ASSERT_EQ(_n_seek, 0);
 }
 
 TEST_F(FileTest, SeekReturnNonFatalFailure)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Set callbacks
-    set_all_callbacks();
+    set_all_callbacks(file);
 
     // Set seek callback
-    auto seek_cb = [](MbFile *file, void *userdata,
+    auto seek_cb = [](mb::File &file, void *userdata,
                       int64_t offset, int whence,
-                      uint64_t *new_offset) -> int {
+                      uint64_t *new_offset) -> mb::FileStatus {
         (void) file;
         (void) offset;
         (void) whence;
         (void) new_offset;
         FileTest *test = static_cast<FileTest *>(userdata);
         ++test->_n_seek;
-        return MB_FILE_FAILED;
+        return mb::FileStatus::FAILED;
     };
-    ASSERT_EQ(mb_file_set_seek_callback(_file, seek_cb), MB_FILE_OK);
+    ASSERT_EQ(file.set_seek_callback(seek_cb), mb::FileStatus::OK);
 
     // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.open(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_open, 1);
 
     // Seek file
-    ASSERT_EQ(mb_file_seek(_file, 0, SEEK_END, nullptr), MB_FILE_FAILED);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.seek(0, SEEK_END, nullptr), mb::FileStatus::FAILED);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_seek, 1);
 }
 
 TEST_F(FileTest, SeekReturnFatalFailure)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Set callbacks
-    set_all_callbacks();
+    set_all_callbacks(file);
 
     // Set seek callback
-    auto seek_cb = [](MbFile *file, void *userdata,
+    auto seek_cb = [](mb::File &file, void *userdata,
                       int64_t offset, int whence,
-                      uint64_t *new_offset) -> int {
+                      uint64_t *new_offset) -> mb::FileStatus {
         (void) file;
         (void) offset;
         (void) whence;
         (void) new_offset;
         FileTest *test = static_cast<FileTest *>(userdata);
         ++test->_n_seek;
-        return MB_FILE_FATAL;
+        return mb::FileStatus::FATAL;
     };
-    ASSERT_EQ(mb_file_set_seek_callback(_file, seek_cb), MB_FILE_OK);
+    ASSERT_EQ(file.set_seek_callback(seek_cb), mb::FileStatus::OK);
 
     // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.open(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_open, 1);
 
     // Seek file
-    ASSERT_EQ(mb_file_seek(_file, 0, SEEK_END, nullptr), MB_FILE_FATAL);
-    ASSERT_EQ(_file->state, MbFileState::FATAL);
+    ASSERT_EQ(file.seek(0, SEEK_END, nullptr), mb::FileStatus::FATAL);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::FATAL);
     ASSERT_EQ(_n_seek, 1);
 }
 
 TEST_F(FileTest, TruncateCallbackCalled)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Set callbacks
-    set_all_callbacks();
+    set_all_callbacks(file);
 
     // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.open(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_open, 1);
 
     // Truncate file
-    ASSERT_EQ(mb_file_truncate(_file, INITIAL_BUF_SIZE / 2), MB_FILE_OK);
+    ASSERT_EQ(file.truncate(INITIAL_BUF_SIZE / 2), mb::FileStatus::OK);
     ASSERT_EQ(_n_truncate, 1);
 }
 
 TEST_F(FileTest, TruncateInWrongState)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Truncate file
-    ASSERT_EQ(mb_file_truncate(_file, INITIAL_BUF_SIZE + 1), MB_FILE_FATAL);
-    ASSERT_EQ(_file->state, MbFileState::FATAL);
-    ASSERT_EQ(_file->error_code, MB_FILE_ERROR_PROGRAMMER_ERROR);
-    ASSERT_NE(_file->error_string.find("mb_file_truncate"), std::string::npos);
-    ASSERT_NE(_file->error_string.find("Invalid state"), std::string::npos);
+    ASSERT_EQ(file.truncate(INITIAL_BUF_SIZE + 1), mb::FileStatus::FATAL);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::FATAL);
+    ASSERT_EQ(file._priv_func()->error_code, mb::FileError::PROGRAMMER_ERROR);
+    ASSERT_NE(file._priv_func()->error_string.find("truncate"), std::string::npos);
+    ASSERT_NE(file._priv_func()->error_string.find("Invalid state"), std::string::npos);
     ASSERT_EQ(_n_truncate, 0);
 }
 
 TEST_F(FileTest, TruncateNoCallback)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Set callbacks
-    set_all_callbacks();
+    set_all_callbacks(file);
 
     // Clear truncate callback
-    mb_file_set_truncate_callback(_file, nullptr);
+    file.set_truncate_callback(nullptr);
 
     // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.open(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_open, 1);
 
     // Truncate file
-    ASSERT_EQ(mb_file_truncate(_file, INITIAL_BUF_SIZE + 1),
-              MB_FILE_UNSUPPORTED);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
-    ASSERT_EQ(_file->error_code, MB_FILE_ERROR_UNSUPPORTED);
-    ASSERT_NE(_file->error_string.find("mb_file_truncate"), std::string::npos);
-    ASSERT_NE(_file->error_string.find("truncate callback"), std::string::npos);
+    ASSERT_EQ(file.truncate(INITIAL_BUF_SIZE + 1), mb::FileStatus::UNSUPPORTED);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
+    ASSERT_EQ(file._priv_func()->error_code, mb::FileError::UNSUPPORTED);
+    ASSERT_NE(file._priv_func()->error_string.find("truncate"), std::string::npos);
+    ASSERT_NE(file._priv_func()->error_string.find("truncate callback"), std::string::npos);
     ASSERT_EQ(_n_truncate, 0);
 }
 
 TEST_F(FileTest, TruncateReturnNonFatalFailure)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Set callbacks
-    set_all_callbacks();
+    set_all_callbacks(file);
 
     // Set truncate callback
-    auto truncate_cb = [](MbFile *file, void *userdata,
-                          uint64_t size) -> int {
+    auto truncate_cb = [](mb::File &file, void *userdata,
+                          uint64_t size) -> mb::FileStatus {
         (void) file;
         (void) size;
         FileTest *test = static_cast<FileTest *>(userdata);
         ++test->_n_truncate;
-        return MB_FILE_FAILED;
+        return mb::FileStatus::FAILED;
     };
-    ASSERT_EQ(mb_file_set_truncate_callback(_file, truncate_cb), MB_FILE_OK);
+    ASSERT_EQ(file.set_truncate_callback(truncate_cb), mb::FileStatus::OK);
 
     // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.open(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_open, 1);
 
     // Truncate file
-    ASSERT_EQ(mb_file_truncate(_file, INITIAL_BUF_SIZE + 1), MB_FILE_FAILED);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.truncate(INITIAL_BUF_SIZE + 1), mb::FileStatus::FAILED);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_truncate, 1);
 }
 
 TEST_F(FileTest, TruncateReturnFatalFailure)
 {
-    ASSERT_EQ(_file->state, MbFileState::NEW);
+    TestableFile file;
 
     // Set callbacks
-    set_all_callbacks();
+    set_all_callbacks(file);
 
     // Set truncate callback
-    auto truncate_cb = [](MbFile *file, void *userdata,
-                          uint64_t size) -> int {
+    auto truncate_cb = [](mb::File &file, void *userdata,
+                          uint64_t size) -> mb::FileStatus {
         (void) file;
         (void) size;
         FileTest *test = static_cast<FileTest *>(userdata);
         ++test->_n_truncate;
-        return MB_FILE_FATAL;
+        return mb::FileStatus::FATAL;
     };
-    ASSERT_EQ(mb_file_set_truncate_callback(_file, truncate_cb), MB_FILE_OK);
+    ASSERT_EQ(file.set_truncate_callback(truncate_cb), mb::FileStatus::OK);
 
     // Open file
-    ASSERT_EQ(mb_file_open(_file), MB_FILE_OK);
-    ASSERT_EQ(_file->state, MbFileState::OPENED);
+    ASSERT_EQ(file.open(), mb::FileStatus::OK);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::OPENED);
     ASSERT_EQ(_n_open, 1);
 
     // Truncate file
-    ASSERT_EQ(mb_file_truncate(_file, INITIAL_BUF_SIZE + 1), MB_FILE_FATAL);
-    ASSERT_EQ(_file->state, MbFileState::FATAL);
+    ASSERT_EQ(file.truncate(INITIAL_BUF_SIZE + 1), mb::FileStatus::FATAL);
+    ASSERT_EQ(file._priv_func()->state, mb::FileState::FATAL);
     ASSERT_EQ(_n_truncate, 1);
 }
 
 TEST_F(FileTest, SetError)
 {
-    ASSERT_EQ(_file->error_code, MB_FILE_ERROR_NONE);
-    ASSERT_TRUE(_file->error_string.empty());
+    TestableFile file;
 
-    ASSERT_EQ(mb_file_set_error(_file, MB_FILE_ERROR_INTERNAL_ERROR,
-                                "%s, %s!", "Hello", "world"), MB_FILE_OK);
+    ASSERT_EQ(file._priv_func()->error_code, mb::FileError::NONE);
+    ASSERT_TRUE(file._priv_func()->error_string.empty());
 
-    ASSERT_EQ(_file->error_code, MB_FILE_ERROR_INTERNAL_ERROR);
-    ASSERT_EQ(_file->error_string, "Hello, world!");
-    ASSERT_EQ(mb_file_error(_file), _file->error_code);
-    ASSERT_EQ(mb_file_error_string(_file), _file->error_string);
+    ASSERT_EQ(file.set_error(mb::FileError::INTERNAL_ERROR,
+                             "%s, %s!", "Hello", "world"), mb::FileStatus::OK);
+
+    ASSERT_EQ(file._priv_func()->error_code, mb::FileError::INTERNAL_ERROR);
+    ASSERT_EQ(file._priv_func()->error_string, "Hello, world!");
+    ASSERT_EQ(file.error(), file._priv_func()->error_code);
+    ASSERT_EQ(file.error_string(), file._priv_func()->error_string);
 }

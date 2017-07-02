@@ -37,13 +37,13 @@
  */
 
 /*!
- * \enum MbFileOpenMode
+ * \enum FileOpenMode
  *
  * \brief Possible file open modes
  */
 
 /*!
- * \var MbFileOpenMode::MB_FILE_OPEN_READ_ONLY
+ * \var FileOpenMode::READ_ONLY
  *
  * \brief Open file for reading.
  *
@@ -51,7 +51,7 @@
  */
 
 /*!
- * \var MbFileOpenMode::MB_FILE_OPEN_READ_WRITE
+ * \var FileOpenMode::READ_WRITE
  *
  * \brief Open file for reading and writing.
  *
@@ -59,7 +59,7 @@
  */
 
 /*!
- * \var MbFileOpenMode::MB_FILE_OPEN_WRITE_ONLY
+ * \var FileOpenMode::WRITE_ONLY
  *
  * \brief Truncate file and open for writing.
  *
@@ -67,7 +67,7 @@
  */
 
 /*!
- * \var MbFileOpenMode::MB_FILE_OPEN_READ_WRITE_TRUNC
+ * \var FileOpenMode::READ_WRITE_TRUNC
  *
  * \brief Truncate file and open for reading and writing.
  *
@@ -75,7 +75,7 @@
  */
 
 /*!
- * \var MbFileOpenMode::MB_FILE_OPEN_APPEND
+ * \var FileOpenMode::APPEND
  *
  * \brief Open file for appending.
  *
@@ -83,7 +83,7 @@
  */
 
 /*!
- * \var MbFileOpenMode::MB_FILE_OPEN_READ_APPEND
+ * \var FileOpenMode::READ_APPEND
  *
  * \brief Open file for reading and appending.
  *
@@ -91,26 +91,19 @@
  * always occurs at the end of the file.
  */
 
-MB_BEGIN_C_DECLS
+namespace mb
+{
 
-typedef int (*VtableOpenFunc)(SysVtable *vtable, struct MbFile *file,
-                              const char *filename, int mode);
-typedef int (*VtableOpenWFunc)(SysVtable *vtable, struct MbFile *file,
-                               const wchar_t *filename, int mode);
-typedef int (*OpenFunc)(struct MbFile *file,
-                        const char *filename, int mode);
-typedef int (*OpenWFunc)(struct MbFile *file,
-                         const wchar_t *filename, int mode);
+typedef FileStatus (*OpenFunc)(File &file,
+                               const char *filename, FileOpenMode mode);
+typedef FileStatus (*OpenWFunc)(File &file,
+                                const wchar_t *filename, FileOpenMode mode);
 
 #define SET_FUNCTIONS(TYPE) \
-    static VtableOpenFunc vtable_open_func = \
-        _mb_file_open_ ## TYPE ## _filename; \
-    static VtableOpenWFunc vtable_open_w_func = \
-        _mb_file_open_ ## TYPE ## _filename_w; \
     static OpenFunc open_func = \
-        mb_file_open_ ## TYPE ## _filename; \
+        file_open_ ## TYPE ## _filename; \
     static OpenWFunc open_w_func = \
-        mb_file_open_ ## TYPE ## _filename_w;
+        file_open_ ## TYPE ## _filename_w;
 
 #if defined(_WIN32)
 SET_FUNCTIONS(HANDLE)
@@ -120,56 +113,44 @@ SET_FUNCTIONS(fd)
 SET_FUNCTIONS(FILE)
 #endif
 
-int _mb_file_open_filename(SysVtable *vtable, struct MbFile *file,
-                           const char *filename, int mode)
-{
-    return vtable_open_func(vtable, file, filename, mode);
-}
-
-int _mb_file_open_filename_w(SysVtable *vtable, struct MbFile *file,
-                             const wchar_t *filename, int mode)
-{
-    return vtable_open_w_func(vtable, file, filename, mode);
-}
-
 /*!
- * Open MbFile handle from a multi-byte filename.
+ * Open File handle from a multi-byte filename.
  *
  * On Unix-like systems, \p filename is used directly. On Windows systems,
  * \p filename is converted to WCS using mb::mbs_to_wcs() before being used.
  *
- * \param file MbFile handle
+ * \param file File handle
  * \param filename MBS filename
- * \param mode Open mode (\ref MbFileOpenMode)
+ * \param mode Open mode (\ref FileOpenMode)
  *
  * \return
- *   * #MB_FILE_OK if the file was successfully opened
- *   * \<= #MB_FILE_WARN if an error occurs
+ *   * #FileStatus::OK if the file was successfully opened
+ *   * \<= #FileStatus::WARN if an error occurs
  */
-int mb_file_open_filename(struct MbFile *file,
-                          const char *filename, int mode)
+FileStatus file_open_filename(File &file,
+                              const char *filename, FileOpenMode mode)
 {
     return open_func(file, filename, mode);
 }
 
 /*!
- * Open MbFile handle from a wide-character filename.
+ * Open File handle from a wide-character filename.
  *
  * On Unix-like systems, \p filename is converted to MBS using mb::wcs_to_mbs()
  * before begin used. On Windows systems, \p filename is used directly.
  *
- * \param file MbFile handle
+ * \param file File handle
  * \param filename WCS filename
- * \param mode Open mode (\ref MbFileOpenMode)
+ * \param mode Open mode (\ref FileOpenMode)
  *
  * \return
- *   * #MB_FILE_OK if the file was successfully opened
- *   * \<= #MB_FILE_WARN if an error occurs
+ *   * #FileStatus::OK if the file was successfully opened
+ *   * \<= #FileStatus::WARN if an error occurs
  */
-int mb_file_open_filename_w(struct MbFile *file,
-                            const wchar_t *filename, int mode)
+FileStatus file_open_filename_w(File &file,
+                                const wchar_t *filename, FileOpenMode mode)
 {
     return open_w_func(file, filename, mode);
 }
 
-MB_END_C_DECLS
+}

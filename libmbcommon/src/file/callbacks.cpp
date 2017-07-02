@@ -24,14 +24,15 @@
  * \brief Open file with callbacks
  */
 
-MB_BEGIN_C_DECLS
+namespace mb
+{
 
 /*!
- * Open MbFile handle with callbacks.
+ * Open File handle with callbacks.
  *
- * This is a wrapper function around the `mb_file_set_*_callback()` functions.
+ * This is a wrapper function around the `File::set_*_callback()` functions.
  *
- * \param file MbFile handle
+ * \param file File handle
  * \param open_cb File open callback
  * \param close_cb File close callback
  * \param read_cb File read callback
@@ -40,57 +41,57 @@ MB_BEGIN_C_DECLS
  * \param truncate_cb File truncate callback
  * \param userdata Data pointer to pass to callbacks
  *
- * \return The minimum return value of the `mb_file_set_*_callback()` functions,
- *         mb_file_set_callback_data(), and mb_file_open()
+ * \return The minimum return value of the `File::set_*_callback()` functions,
+ *         File::set_callback_data(), and File::open()
  */
-int mb_file_open_callbacks(struct MbFile *file,
-                           MbFileOpenCb open_cb,
-                           MbFileCloseCb close_cb,
-                           MbFileReadCb read_cb,
-                           MbFileWriteCb write_cb,
-                           MbFileSeekCb seek_cb,
-                           MbFileTruncateCb truncate_cb,
-                           void *userdata)
+FileStatus file_open_callbacks(File &file,
+                               File::OpenCb open_cb,
+                               File::CloseCb close_cb,
+                               File::ReadCb read_cb,
+                               File::WriteCb write_cb,
+                               File::SeekCb seek_cb,
+                               File::TruncateCb truncate_cb,
+                               void *userdata)
 {
-    int ret = MB_FILE_OK;
-    int ret2;
+    FileStatus ret = FileStatus::OK;
+    FileStatus ret2;
 
-    ret2 = mb_file_set_open_callback(file, open_cb);
+    ret2 = file.set_open_callback(open_cb);
     if (ret2 < ret) {
         ret = ret2;
     }
 
-    ret2 = mb_file_set_close_callback(file, close_cb);
+    ret2 = file.set_close_callback(close_cb);
     if (ret2 < ret) {
         ret = ret2;
     }
 
-    ret2 = mb_file_set_read_callback(file, read_cb);
+    ret2 = file.set_read_callback(read_cb);
     if (ret2 < ret) {
         ret = ret2;
     }
 
-    ret2 = mb_file_set_write_callback(file, write_cb);
+    ret2 = file.set_write_callback(write_cb);
     if (ret2 < ret) {
         ret = ret2;
     }
 
-    ret2 = mb_file_set_seek_callback(file, seek_cb);
+    ret2 = file.set_seek_callback(seek_cb);
     if (ret2 < ret) {
         ret = ret2;
     }
 
-    ret2 = mb_file_set_truncate_callback(file, truncate_cb);
+    ret2 = file.set_truncate_callback(truncate_cb);
     if (ret2 < ret) {
         ret = ret2;
     }
 
-    ret2 = mb_file_set_callback_data(file, userdata);
+    ret2 = file.set_callback_data(userdata);
     if (ret2 < ret) {
         ret = ret2;
     }
 
-    ret2 = mb_file_open(file);
+    ret2 = file.open();
     if (ret2 < ret) {
         ret = ret2;
     }
@@ -98,4 +99,4 @@ int mb_file_open_callbacks(struct MbFile *file,
     return ret;
 }
 
-MB_END_C_DECLS
+}

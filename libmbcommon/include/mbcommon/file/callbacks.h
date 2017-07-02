@@ -21,15 +21,16 @@
 
 #include "mbcommon/file.h"
 
-MB_BEGIN_C_DECLS
+namespace mb
+{
 
-MB_EXPORT int mb_file_open_callbacks(struct MbFile *file,
-                                     MbFileOpenCb open_cb,
-                                     MbFileCloseCb close_cb,
-                                     MbFileReadCb read_cb,
-                                     MbFileWriteCb write_cb,
-                                     MbFileSeekCb seek_cb,
-                                     MbFileTruncateCb truncate_cb,
-                                     void *userdata);
+MB_EXPORT FileStatus file_open_callbacks(File &file,
+                                         File::OpenCb open_cb,
+                                         File::CloseCb close_cb,
+                                         File::ReadCb read_cb,
+                                         File::WriteCb write_cb,
+                                         File::SeekCb seek_cb,
+                                         File::TruncateCb truncate_cb,
+                                         void *userdata);
 
-MB_END_C_DECLS
+}

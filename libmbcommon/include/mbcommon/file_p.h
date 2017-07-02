@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016  Andrew Gunnerson <andrewgunnerson@gmail.com>
+ * Copyright (C) 2016-2017  Andrew Gunnerson <andrewgunnerson@gmail.com>
  *
  * This file is part of DualBootPatcher
  *
@@ -22,36 +22,40 @@
 #include "mbcommon/guard_p.h"
 
 #include "mbcommon/file.h"
-
-#include <string>
+#include "mbcommon/flags.h"
 
 /*! \cond INTERNAL */
-enum MbFileState : uint16_t
+namespace mb
 {
-    NEW             = 1U << 1,
-    OPENED          = 1U << 2,
-    CLOSED          = 1U << 3,
-    FATAL           = 1U << 4,
-    // Grouped
-    ANY_NONFATAL    = NEW | OPENED | CLOSED,
-    ANY             = ANY_NONFATAL | FATAL,
-};
 
-struct MbFile
+enum class FileState : uint16_t
 {
-    uint16_t state;
+    NEW     = 1u << 1,
+    OPENED  = 1u << 2,
+    CLOSED  = 1u << 3,
+    FATAL   = 1u << 4,
+};
+MB_DECLARE_FLAGS(FileStates, FileState)
+MB_DECLARE_OPERATORS_FOR_FLAGS(FileStates)
+
+class FilePrivate
+{
+public:
+    FileState state;
 
     // Callbacks
-    MbFileOpenCb open_cb;
-    MbFileCloseCb close_cb;
-    MbFileReadCb read_cb;
-    MbFileWriteCb write_cb;
-    MbFileSeekCb seek_cb;
-    MbFileTruncateCb truncate_cb;
+    File::OpenCb open_cb;
+    File::CloseCb close_cb;
+    File::ReadCb read_cb;
+    File::WriteCb write_cb;
+    File::SeekCb seek_cb;
+    File::TruncateCb truncate_cb;
     void *cb_userdata;
 
     // Error
     int error_code;
     std::string error_string;
 };
+
+}
 /*! \endcond */

@@ -41,57 +41,100 @@
  * \brief Open file with POSIX file descriptors API
  */
 
-MB_BEGIN_C_DECLS
+namespace mb
+{
+
+struct RealFdFileFuncs : public FdFileFuncs
+{
+#ifdef _WIN32
+    virtual int fn_wopen(const wchar_t *path, int flags, mode_t mode) override
+    {
+        return _wopen(path, flags, mode);
+    }
+#else
+    virtual int fn_open(const char *path, int flags, mode_t mode) override
+    {
+        return open(path, flags, mode);
+    }
+#endif
+
+    virtual int fn_fstat(int fildes, struct stat *buf) override
+    {
+        return fstat(fildes, buf);
+    }
+
+    virtual int fn_close(int fd) override
+    {
+        return close(fd);
+    }
+
+    virtual int fn_ftruncate64(int fd, off_t length) override
+    {
+        return ftruncate64(fd, length);
+    }
+
+    virtual off64_t fn_lseek64(int fd, off64_t offset, int whence) override
+    {
+        return lseek64(fd, offset, whence);
+    }
+
+    virtual ssize_t fn_read(int fd, void *buf, size_t count) override
+    {
+        return read(fd, buf, count);
+    }
+
+    virtual ssize_t fn_write(int fd, const void *buf, size_t count) override
+    {
+        return write(fd, buf, count);
+    }
+};
+
+static RealFdFileFuncs g_default_funcs;
 
 static void free_ctx(FdFileCtx *ctx)
 {
     delete ctx;
 }
 
-static int fd_open_cb(struct MbFile *file, void *userdata)
+static FileStatus fd_open_cb(File &file, void *userdata)
 {
     FdFileCtx *ctx = static_cast<FdFileCtx *>(userdata);
     struct stat sb;
 
     if (!ctx->filename.empty()) {
 #ifdef _WIN32
-        ctx->fd = ctx->vtable.fn_wopen(
+        ctx->fd = ctx->funcs->fn_wopen(
 #else
-        ctx->fd = ctx->vtable.fn_open(
+        ctx->fd = ctx->funcs->fn_open(
 #endif
-                ctx->vtable.userdata, ctx->filename.c_str(), ctx->flags,
-                DEFAULT_MODE);
+                ctx->filename.c_str(), ctx->flags, DEFAULT_MODE);
         if (ctx->fd < 0) {
-            mb_file_set_error(file, -errno, "Failed to open file: %s",
-                              strerror(errno));
-            return MB_FILE_FAILED;
+            file.set_error(-errno, "Failed to open file: %s", strerror(errno));
+            return FileStatus::FAILED;
         }
     }
 
-    if (ctx->vtable.fn_fstat(ctx->vtable.userdata, ctx->fd, &sb) < 0) {
-        mb_file_set_error(file, -errno,
-                          "Failed to stat file: %s", strerror(errno));
-        return MB_FILE_FAILED;
+    if (ctx->funcs->fn_fstat(ctx->fd, &sb) < 0) {
+        file.set_error(-errno, "Failed to stat file: %s", strerror(errno));
+        return FileStatus::FAILED;
     }
 
     if (S_ISDIR(sb.st_mode)) {
-        mb_file_set_error(file, -EISDIR, "Cannot open directory");
-        return MB_FILE_FAILED;
+        file.set_error(-EISDIR, "Cannot open directory");
+        return FileStatus::FAILED;
     }
 
-    return MB_FILE_OK;
+    return FileStatus::OK;
 }
 
-static int fd_close_cb(struct MbFile *file, void *userdata)
+static FileStatus fd_close_cb(File &file, void *userdata)
 {
     FdFileCtx *ctx = static_cast<FdFileCtx *>(userdata);
-    int ret = MB_FILE_OK;
+    FileStatus ret = FileStatus::OK;
 
-    if (ctx->owned && ctx->fd >= 0 && ctx->vtable.fn_close(
-            ctx->vtable.userdata, ctx->fd) < 0) {
-        mb_file_set_error(file, -errno,
-                          "Failed to close file: %s", strerror(errno));
-        ret = MB_FILE_FAILED;
+    if (ctx->owned && ctx->fd >= 0 && ctx->funcs->fn_close(ctx->fd) < 0) {
+        file.set_error(-errno, "Failed to close file: %s", strerror(errno));
+        ret = FileStatus::FAILED;
     }
 
     free_ctx(ctx);
@@ -99,9 +142,8 @@ static int fd_close_cb(struct MbFile *file, void *userdata)
     return ret;
 }
 
-static int fd_read_cb(struct MbFile *file, void *userdata,
-                      void *buf, size_t size,
-                      size_t *bytes_read)
+static FileStatus fd_read_cb(File &file, void *userdata,
+                             void *buf, size_t size, size_t *bytes_read)
 {
     FdFileCtx *ctx = static_cast<FdFileCtx *>(userdata);
 
@@ -109,20 +151,19 @@ static int fd_read_cb(struct MbFile *file, void *userdata,
         size = SSIZE_MAX;
     }
 
-    ssize_t n = ctx->vtable.fn_read(ctx->vtable.userdata, ctx->fd, buf, size);
+    ssize_t n = ctx->funcs->fn_read(ctx->fd, buf, size);
     if (n < 0) {
-        mb_file_set_error(file, -errno,
-                          "Failed to read file: %s", strerror(errno));
-        return errno == EINTR ? MB_FILE_RETRY : MB_FILE_FAILED;
+        file.set_error(-errno, "Failed to read file: %s", strerror(errno));
+        return errno == EINTR ? FileStatus::RETRY : FileStatus::FAILED;
     }
 
     *bytes_read = n;
-    return MB_FILE_OK;
+    return FileStatus::OK;
 }
 
-static int fd_write_cb(struct MbFile *file, void *userdata,
-                       const void *buf, size_t size,
-                       size_t *bytes_written)
+static FileStatus fd_write_cb(File &file, void *userdata,
+                              const void *buf, size_t size,
+                              size_t *bytes_written)
 {
     FdFileCtx *ctx = static_cast<FdFileCtx *>(userdata);
 
@@ -130,100 +171,72 @@ static int fd_write_cb(struct MbFile *file, void *userdata,
         size = SSIZE_MAX;
     }
 
-    ssize_t n = ctx->vtable.fn_write(ctx->vtable.userdata, ctx->fd, buf, size);
+    ssize_t n = ctx->funcs->fn_write(ctx->fd, buf, size);
     if (n < 0) {
-        mb_file_set_error(file, -errno,
-                          "Failed to write file: %s", strerror(errno));
-        return errno == EINTR ? MB_FILE_RETRY : MB_FILE_FAILED;
+        file.set_error(-errno, "Failed to write file: %s", strerror(errno));
+        return errno == EINTR ? FileStatus::RETRY : FileStatus::FAILED;
     }
 
     *bytes_written = n;
-    return MB_FILE_OK;
+    return FileStatus::OK;
 }
 
-static int fd_seek_cb(struct MbFile *file, void *userdata,
-                      int64_t offset, int whence,
-                      uint64_t *new_offset)
+static FileStatus fd_seek_cb(File &file, void *userdata,
+                             int64_t offset, int whence, uint64_t *new_offset)
 {
     FdFileCtx *ctx = static_cast<FdFileCtx *>(userdata);
 
-    off64_t ret = ctx->vtable.fn_lseek64(
-            ctx->vtable.userdata, ctx->fd, offset, whence);
+    off64_t ret = ctx->funcs->fn_lseek64(ctx->fd, offset, whence);
     if (ret < 0) {
-        mb_file_set_error(file, -errno,
-                          "Failed to seek file: %s", strerror(errno));
-        return MB_FILE_FAILED;
+        file.set_error(-errno, "Failed to seek file: %s", strerror(errno));
+        return FileStatus::FAILED;
     }
 
     *new_offset = ret;
-    return MB_FILE_OK;
+    return FileStatus::OK;
 }
 
-static int fd_truncate_cb(struct MbFile *file, void *userdata,
-                          uint64_t size)
+static FileStatus fd_truncate_cb(File &file, void *userdata, uint64_t size)
 {
     FdFileCtx *ctx = static_cast<FdFileCtx *>(userdata);
 
-    if (ctx->vtable.fn_ftruncate64(ctx->vtable.userdata, ctx->fd, size) < 0) {
-        mb_file_set_error(file, -errno,
-                          "Failed to truncate file: %s", strerror(errno));
-        return MB_FILE_FAILED;
+    if (ctx->funcs->fn_ftruncate64(ctx->fd, size) < 0) {
+        file.set_error(-errno,
+                       "Failed to truncate file: %s", strerror(errno));
+        return FileStatus::FAILED;
     }
 
-    return MB_FILE_OK;
+    return FileStatus::OK;
 }
 
-static bool check_vtable(SysVtable *vtable, bool needs_open)
+static FdFileCtx * create_ctx(File &file, FdFileFuncs *funcs)
 {
-    return vtable
-#ifdef _WIN32
-            && (needs_open ? !!vtable->fn_wopen : true)
-#else
-            && (needs_open ? !!vtable->fn_open : true)
-#endif
-            && vtable->fn_fstat
-            && vtable->fn_close
-            && vtable->fn_ftruncate64
-            && vtable->fn_lseek64
-            && vtable->fn_read
-            && vtable->fn_write;
-}
-
-static FdFileCtx * create_ctx(struct MbFile *file, SysVtable *vtable,
-                              bool needs_open)
-{
-    if (!check_vtable(vtable, needs_open)) {
-        mb_file_set_error(file, MB_FILE_ERROR_INTERNAL_ERROR,
-                          "Invalid or incomplete vtable");
-        return nullptr;
-    }
-
     FdFileCtx *ctx = new(std::nothrow) FdFileCtx();
     if (!ctx) {
-        mb_file_set_error(file, MB_FILE_ERROR_INTERNAL_ERROR,
-                          "Failed to allocate FdFileCtx: %s",
-                          strerror(errno));
+        file.set_error(FileError::INTERNAL_ERROR,
+                       "Failed to allocate FdFileCtx: %s",
+                       strerror(errno));
         return nullptr;
     }
 
-    ctx->vtable = *vtable;
+    ctx->funcs = funcs;
 
     return ctx;
 }
 
-static int open_ctx(struct MbFile *file, FdFileCtx *ctx)
+static FileStatus open_ctx(File &file, FdFileCtx *ctx)
 {
-    return mb_file_open_callbacks(file,
-                                  &fd_open_cb,
-                                  &fd_close_cb,
-                                  &fd_read_cb,
-                                  &fd_write_cb,
-                                  &fd_seek_cb,
-                                  &fd_truncate_cb,
-                                  ctx);
+    return file_open_callbacks(file,
+                               &fd_open_cb,
+                               &fd_close_cb,
+                               &fd_read_cb,
+                               &fd_write_cb,
+                               &fd_seek_cb,
+                               &fd_truncate_cb,
+                               ctx);
 }
 
-static int convert_mode(int mode)
+static int convert_mode(FileOpenMode mode)
 {
     int ret = 0;
 
@@ -234,22 +247,22 @@ static int convert_mode(int mode)
 #endif
 
     switch (mode) {
-    case MB_FILE_OPEN_READ_ONLY:
+    case FileOpenMode::READ_ONLY:
         ret |= O_RDONLY;
         break;
-    case MB_FILE_OPEN_READ_WRITE:
+    case FileOpenMode::READ_WRITE:
         ret |= O_RDWR;
         break;
-    case MB_FILE_OPEN_WRITE_ONLY:
+    case FileOpenMode::WRITE_ONLY:
         ret |= O_WRONLY | O_CREAT | O_TRUNC;
         break;
-    case MB_FILE_OPEN_READ_WRITE_TRUNC:
+    case FileOpenMode::READ_WRITE_TRUNC:
         ret |= O_RDWR | O_CREAT | O_TRUNC;
         break;
-    case MB_FILE_OPEN_APPEND:
+    case FileOpenMode::APPEND:
         ret |= O_WRONLY | O_CREAT | O_APPEND;
         break;
-    case MB_FILE_OPEN_READ_APPEND:
+    case FileOpenMode::READ_APPEND:
         ret |= O_RDWR | O_CREAT | O_APPEND;
         break;
     default:
@@ -260,11 +273,11 @@ static int convert_mode(int mode)
     return ret;
 }
 
-int _mb_file_open_fd(SysVtable *vtable, struct MbFile *file, int fd, bool owned)
+FileStatus _file_open_fd(FdFileFuncs *funcs, File &file, int fd, bool owned)
 {
-    FdFileCtx *ctx = create_ctx(file, vtable, false);
+    FdFileCtx *ctx = create_ctx(file, funcs);
     if (!ctx) {
-        return MB_FILE_FATAL;
+        return FileStatus::FATAL;
     }
 
     ctx->fd = fd;
@@ -273,22 +286,22 @@ int _mb_file_open_fd(SysVtable *vtable, struct MbFile *file, int fd, bool owned)
     return open_ctx(file, ctx);
 }
 
-int _mb_file_open_fd_filename(SysVtable *vtable, struct MbFile *file,
-                              const char *filename, int mode)
+FileStatus _file_open_fd_filename(FdFileFuncs *funcs, File &file,
+                                  const char *filename, FileOpenMode mode)
 {
-    FdFileCtx *ctx = create_ctx(file, vtable, false);
+    FdFileCtx *ctx = create_ctx(file, funcs);
     if (!ctx) {
-        return MB_FILE_FATAL;
+        return FileStatus::FATAL;
     }
 
     ctx->owned = true;
 
 #ifdef _WIN32
     if (!mb::mbs_to_wcs(ctx->filename, filename)) {
-        mb_file_set_error(file, MB_FILE_ERROR_INVALID_ARGUMENT,
-                          "Failed to convert MBS filename or mode to WCS");
+        file.set_error(FileError::INVALID_ARGUMENT,
+                       "Failed to convert MBS filename or mode to WCS");
         free_ctx(ctx);
-        return MB_FILE_FATAL;
+        return FileStatus::FATAL;
     }
 #else
     ctx->filename = filename;
@@ -296,21 +309,21 @@ int _mb_file_open_fd_filename(SysVtable *vtable, struct MbFile *file,
 
     ctx->flags = convert_mode(mode);
     if (ctx->flags < 0) {
-        mb_file_set_error(file, MB_FILE_ERROR_INVALID_ARGUMENT,
-                          "Invalid mode: %d", mode);
+        file.set_error(FileError::INVALID_ARGUMENT,
+                       "Invalid mode: %d", mode);
         free_ctx(ctx);
-        return MB_FILE_FATAL;
+        return FileStatus::FATAL;
     }
 
     return open_ctx(file, ctx);
 }
 
-int _mb_file_open_fd_filename_w(SysVtable *vtable, struct MbFile *file,
-                                const wchar_t *filename, int mode)
+FileStatus _file_open_fd_filename_w(FdFileFuncs *funcs, File &file,
+                                    const wchar_t *filename, FileOpenMode mode)
 {
-    FdFileCtx *ctx = create_ctx(file, vtable, false);
+    FdFileCtx *ctx = create_ctx(file, funcs);
     if (!ctx) {
-        return MB_FILE_FATAL;
+        return FileStatus::FATAL;
     }
 
     ctx->owned = true;
@@ -319,91 +332,84 @@ int _mb_file_open_fd_filename_w(SysVtable *vtable, struct MbFile *file,
     ctx->filename = filename;
 #else
     if (!mb::wcs_to_mbs(ctx->filename, filename)) {
-        mb_file_set_error(file, MB_FILE_ERROR_INVALID_ARGUMENT,
-                          "Failed to convert WCS filename or mode to MBS");
+        file.set_error(FileError::INVALID_ARGUMENT,
+                       "Failed to convert WCS filename or mode to MBS");
         free_ctx(ctx);
-        return MB_FILE_FATAL;
+        return FileStatus::FATAL;
     }
 #endif
 
     ctx->flags = convert_mode(mode);
     if (ctx->flags < 0) {
-        mb_file_set_error(file, MB_FILE_ERROR_INVALID_ARGUMENT,
-                          "Invalid mode: %d", mode);
+        file.set_error(FileError::INVALID_ARGUMENT,
+                       "Invalid mode: %d", mode);
         free_ctx(ctx);
-        return MB_FILE_FATAL;
+        return FileStatus::FATAL;
     }
 
     return open_ctx(file, ctx);
 }
 
 /*!
- * Open MbFile handle from file descriptor.
+ * Open File handle from file descriptor.
  *
- * If \p owned is true, then the MbFile handle will take ownership of the file
+ * If \p owned is true, then the File handle will take ownership of the file
  * descriptor. In other words, the file descriptor will be closed when the
- * MbFile handle is closed.
+ * File handle is closed.
  *
- * \param file MbFile handle
+ * \param file File handle
  * \param fd File descriptor
- * \param owned Whether the file descriptor should be owned by the MbFile
- *              handle
+ * \param owned Whether the file descriptor should be owned by the File handle
  *
  * \return
- *   * #MB_FILE_OK if the file descriptor was successfully opened
- *   * \<= #MB_FILE_WARN if an error occurs
+ *   * #FileStatus::OK if the file descriptor was successfully opened
+ *   * \<= #FileStatus::WARN if an error occurs
  */
-int mb_file_open_fd(struct MbFile *file, int fd, bool owned)
+FileStatus file_open_fd(File &file, int fd, bool owned)
 {
-    SysVtable vtable{};
-    _vtable_fill_system_funcs(&vtable);
-    return _mb_file_open_fd(&vtable, file, fd, owned);
+    return _file_open_fd(&g_default_funcs, file, fd, owned);
 }
 
 /*!
- * Open MbFile handle from a multi-byte filename.
+ * Open File handle from a multi-byte filename.
  *
  * On Unix-like systems, \p filename is directly passed to `open()`. On Windows
  * systems, \p filename is converted to WCS using mb::mbs_to_wcs() before being
  * passed to `_wopen()`.
  *
- * \param file MbFile handle
+ * \param file File handle
  * \param filename MBS filename
- * \param mode Open mode (\ref MbFileOpenMode)
+ * \param mode Open mode (\ref FileOpenMode)
  *
  * \return
- *   * #MB_FILE_OK if the file was successfully opened
- *   * \<= #MB_FILE_WARN if an error occurs
+ *   * #FileStatus::OK if the file was successfully opened
+ *   * \<= #FileStatus::WARN if an error occurs
  */
-int mb_file_open_fd_filename(struct MbFile *file, const char *filename,
-                             int mode)
+FileStatus file_open_fd_filename(File &file, const char *filename,
+                                 FileOpenMode mode)
 {
-    SysVtable vtable{};
-    _vtable_fill_system_funcs(&vtable);
-    return _mb_file_open_fd_filename(&vtable, file, filename, mode);
+    return _file_open_fd_filename(&g_default_funcs, file, filename, mode);
 }
 
 /*!
- * Open MbFile handle from a wide-character filename.
+ * Open File handle from a wide-character filename.
  *
  * On Unix-like systems, \p filename is converted to MBS using mb::wcs_to_mbs()
  * before being passed to `open()`. On Windows systems, \p filename is directly
  * passed to `_wopen()`.
  *
- * \param file MbFile handle
+ * \param file File handle
  * \param filename WCS filename
- * \param mode Open mode (\ref MbFileOpenMode)
+ * \param mode Open mode (\ref FileOpenMode)
  *
  * \return
- *   * #MB_FILE_OK if the file was successfully opened
- *   * \<= #MB_FILE_WARN if an error occurs
+ *   * #FileStatus::OK if the file was successfully opened
+ *   * \<= #FileStatus::WARN if an error occurs
  */
-int mb_file_open_fd_filename_w(struct MbFile *file, const wchar_t *filename,
-                               int mode)
+FileStatus file_open_fd_filename_w(File &file, const wchar_t *filename,
+                                   FileOpenMode mode)
 {
-    SysVtable vtable{};
-    _vtable_fill_system_funcs(&vtable);
-    return _mb_file_open_fd_filename_w(&vtable, file, filename, mode);
+    return _file_open_fd_filename_w(&g_default_funcs, file, filename, mode);
 }
 
-MB_END_C_DECLS
+}

@@ -36,24 +36,25 @@
  * \brief Open file from memory
  */
 
-MB_BEGIN_C_DECLS
+namespace mb
+{
 
 static void free_ctx(MemoryFileCtx *ctx)
 {
     free(ctx);
 }
 
-static int memory_close_cb(struct MbFile *file, void *userdata)
+static FileStatus memory_close_cb(File &file, void *userdata)
 {
     (void) file;
     MemoryFileCtx *const ctx = static_cast<MemoryFileCtx *>(userdata);
 
     free_ctx(ctx);
-    return MB_FILE_OK;
+    return FileStatus::OK;
 }
 
-static int memory_read_cb(struct MbFile *file, void *userdata,
-                          void *buf, size_t size, size_t *bytes_read)
+static FileStatus memory_read_cb(File &file, void *userdata,
+                                 void *buf, size_t size, size_t *bytes_read)
 {
     (void) file;
     MemoryFileCtx *const ctx = static_cast<MemoryFileCtx *>(userdata);
@@ -67,18 +68,19 @@ static int memory_read_cb(struct MbFile *file, void *userdata,
     ctx->pos += to_read;
 
     *bytes_read = to_read;
-    return MB_FILE_OK;
+    return FileStatus::OK;
 }
 
-static int memory_write_cb(struct MbFile *file, void *userdata,
-                           const void *buf, size_t size, size_t *bytes_written)
+static FileStatus memory_write_cb(File &file, void *userdata,
+                                  const void *buf, size_t size,
+                                  size_t *bytes_written)
 {
     MemoryFileCtx *const ctx = static_cast<MemoryFileCtx *>(userdata);
 
     if (ctx->pos > SIZE_MAX - size) {
-        mb_file_set_error(file, MB_FILE_ERROR_INVALID_ARGUMENT,
-                          "Write would overflow size_t");
-        return MB_FILE_FAILED;
+        file.set_error(FileError::INVALID_ARGUMENT,
+                       "Write would overflow size_t");
+        return FileStatus::FAILED;
     }
 
     size_t desired_size = ctx->pos + size;
@@ -91,10 +93,9 @@ static int memory_write_cb(struct MbFile *file, void *userdata,
             // Enlarge buffer
             void *new_data = realloc(ctx->data, desired_size);
             if (!new_data) {
-                mb_file_set_error(file, -errno,
-                                  "Failed to enlarge buffer: %s",
-                                  strerror(errno));
-                return MB_FILE_FAILED;
+                file.set_error(-errno, "Failed to enlarge buffer: %s",
+                               strerror(errno));
+                return FileStatus::FAILED;
             }
 
             // Zero-initialize new space
@@ -116,21 +117,21 @@ static int memory_write_cb(struct MbFile *file, void *userdata,
     ctx->pos += to_write;
 
     *bytes_written = to_write;
-    return MB_FILE_OK;
+    return FileStatus::OK;
 }
 
-static int memory_seek_cb(struct MbFile *file, void *userdata,
-                          int64_t offset, int whence, uint64_t *new_offset)
+static FileStatus memory_seek_cb(File &file, void *userdata,
+                                 int64_t offset, int whence,
+                                 uint64_t *new_offset)
 {
     MemoryFileCtx *const ctx = static_cast<MemoryFileCtx *>(userdata);
 
     switch (whence) {
     case SEEK_SET:
         if (offset < 0 || static_cast<uint64_t>(offset) > SIZE_MAX) {
-            mb_file_set_error(file, MB_FILE_ERROR_INVALID_ARGUMENT,
-                              "Invalid SEEK_SET offset %" PRId64,
-                              offset);
-            return MB_FILE_FAILED;
+            file.set_error(FileError::INVALID_ARGUMENT,
+                           "Invalid SEEK_SET offset %" PRId64, offset);
+            return FileStatus::FAILED;
         }
         *new_offset = ctx->pos = offset;
         break;
@@ -138,11 +139,10 @@ static int memory_seek_cb(struct MbFile *file, void *userdata,
         if ((offset < 0 && static_cast<uint64_t>(-offset) > ctx->pos)
                 || (offset > 0 && static_cast<uint64_t>(offset)
                         > SIZE_MAX - ctx->pos)) {
-            mb_file_set_error(file, MB_FILE_ERROR_INVALID_ARGUMENT,
-                              "Invalid SEEK_CUR offset %" PRId64
-                              " for position %" MB_PRIzu,
-                              offset, ctx->pos);
-            return MB_FILE_FAILED;
+            file.set_error(FileError::INVALID_ARGUMENT,
+                           "Invalid SEEK_CUR offset %" PRId64
+                           " for position %" MB_PRIzu, offset, ctx->pos);
+            return FileStatus::FAILED;
         }
         *new_offset = ctx->pos += offset;
         break;
@@ -150,39 +150,36 @@ static int memory_seek_cb(struct MbFile *file, void *userdata,
         if ((offset < 0 && static_cast<size_t>(-offset) > ctx->size)
                 || (offset > 0 && static_cast<uint64_t>(offset)
                         > SIZE_MAX - ctx->size)) {
-            mb_file_set_error(file, MB_FILE_ERROR_INVALID_ARGUMENT,
-                              "Invalid SEEK_END offset %" PRId64
-                              " for file of size %" MB_PRIzu,
-                              offset, ctx->size);
-            return MB_FILE_FAILED;
+            file.set_error(FileError::INVALID_ARGUMENT,
+                           "Invalid SEEK_END offset %" PRId64
+                           " for file of size %" MB_PRIzu, offset, ctx->size);
+            return FileStatus::FAILED;
         }
         *new_offset = ctx->pos = ctx->size + offset;
         break;
     default:
-        mb_file_set_error(file, MB_FILE_ERROR_INVALID_ARGUMENT,
-                          "Invalid whence argument: %d", whence);
-        return MB_FILE_FAILED;
+        file.set_error(FileError::INVALID_ARGUMENT,
+                       "Invalid whence argument: %d", whence);
+        return FileStatus::FAILED;
     }
 
-    return MB_FILE_OK;
+    return FileStatus::OK;
 }
 
-static int memory_truncate_cb(struct MbFile *file, void *userdata,
-                              uint64_t size)
+static FileStatus memory_truncate_cb(File &file, void *userdata, uint64_t size)
 {
     MemoryFileCtx *const ctx = static_cast<MemoryFileCtx *>(userdata);
 
     if (ctx->fixed_size) {
-        mb_file_set_error(file, MB_FILE_ERROR_UNSUPPORTED,
-                          "Cannot truncate fixed buffer");
-        return MB_FILE_UNSUPPORTED;
+        file.set_error(FileError::UNSUPPORTED,
+                       "Cannot truncate fixed buffer");
+        return FileStatus::UNSUPPORTED;
     } else {
         void *new_data = realloc(ctx->data, size);
         if (!new_data) {
-            mb_file_set_error(file, -errno,
-                              "Failed to resize buffer: %s",
-                              strerror(errno));
-            return MB_FILE_FAILED;
+            file.set_error(-errno, "Failed to resize buffer: %s",
+                           strerror(errno));
+            return FileStatus::FAILED;
         }
 
         // Zero-initialize new space
@@ -201,52 +198,52 @@ static int memory_truncate_cb(struct MbFile *file, void *userdata,
         }
     }
 
-    return MB_FILE_OK;
+    return FileStatus::OK;
 }
 
-static MemoryFileCtx * create_ctx(struct MbFile *file)
+static MemoryFileCtx * create_ctx(File &file)
 {
     MemoryFileCtx *ctx = static_cast<MemoryFileCtx *>(
             calloc(1, sizeof(MemoryFileCtx)));
     if (!ctx) {
-        mb_file_set_error(file, MB_FILE_ERROR_INTERNAL_ERROR,
-                          "Failed to allocate MemoryFileCtx: %s",
-                          strerror(errno));
+        file.set_error(FileError::INTERNAL_ERROR,
+                       "Failed to allocate MemoryFileCtx: %s",
+                       strerror(errno));
         return nullptr;
     }
 
     return ctx;
 }
 
-static int open_ctx(struct MbFile *file, MemoryFileCtx *ctx)
+static FileStatus open_ctx(File &file, MemoryFileCtx *ctx)
 {
-    return mb_file_open_callbacks(file,
-                                  nullptr,
-                                  &memory_close_cb,
-                                  &memory_read_cb,
-                                  &memory_write_cb,
-                                  &memory_seek_cb,
-                                  &memory_truncate_cb,
-                                  ctx);
+    return file_open_callbacks(file,
+                               nullptr,
+                               &memory_close_cb,
+                               &memory_read_cb,
+                               &memory_write_cb,
+                               &memory_seek_cb,
+                               &memory_truncate_cb,
+                               ctx);
 }
 
 /*!
- * Open MbFile handle from fixed size memory buffer.
+ * Open File handle from fixed size memory buffer.
  *
- * \param file MbFile handle
+ * \param file File handle
  * \param buf Data buffer
  * \param size Size of data buffer
  *
  * \return
- *   * #MB_FILE_OK if the buffer is successfully opened
- *   * \<= #MB_FILE_WARN if an error occurs
+ *   * #FileStatus::OK if the buffer is successfully opened
+ *   * \<= #FileStatus::WARN if an error occurs
  */
-int mb_file_open_memory_static(struct MbFile *file,
-                               const void *buf, size_t size)
+FileStatus file_open_memory_static(File &file,
+                                   const void *buf, size_t size)
 {
     MemoryFileCtx *ctx = create_ctx(file);
     if (!ctx) {
-        return MB_FILE_FATAL;
+        return FileStatus::FATAL;
     }
 
     ctx->data = const_cast<void *>(buf);
@@ -257,22 +254,22 @@ int mb_file_open_memory_static(struct MbFile *file,
 }
 
 /*!
- * Open MbFile handle from dynamically sized memory buffer.
+ * Open File handle from dynamically sized memory buffer.
  *
- * \param[in] file MbFile handle
+ * \param[in] file File handle
  * \param[in,out] buf_ptr Pointer to data buffer
  * \param[in,out] size_ptr Pointer to size of data buffer
  *
  * \return
- *   * #MB_FILE_OK if the buffer is successfully opened
- *   * \<= #MB_FILE_WARN if an error occurs
+ *   * #FileStatus::OK if the buffer is successfully opened
+ *   * \<= #FileStatus::WARN if an error occurs
  */
-int mb_file_open_memory_dynamic(struct MbFile *file,
-                                void **buf_ptr, size_t *size_ptr)
+FileStatus file_open_memory_dynamic(File &file,
+                                    void **buf_ptr, size_t *size_ptr)
 {
     MemoryFileCtx *ctx = create_ctx(file);
     if (!ctx) {
-        return MB_FILE_FATAL;
+        return FileStatus::FATAL;
     }
 
     ctx->data = *buf_ptr;
@@ -283,4 +280,4 @@ int mb_file_open_memory_dynamic(struct MbFile *file,
     return open_ctx(file, ctx);
 }
 
-MB_END_C_DECLS
+}

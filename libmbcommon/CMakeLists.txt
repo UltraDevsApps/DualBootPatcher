@@ -13,7 +13,6 @@ set(MBCOMMON_SOURCES
     src/file/filename.cpp
     src/file/memory.cpp
     src/file/posix.cpp
-    src/file/vtable.cpp
     src/file.cpp
     src/file_util.cpp
     src/libc/stdio.cpp
@@ -146,18 +145,12 @@ if(variants AND MBP_ENABLE_TESTS)
         ${MBCOMMON_TESTS_SOURCES}
     )
 
-    # Includes
-    target_include_directories(
-        mbcommon_tests
-        PRIVATE
-        ${GTEST_INCLUDE_DIRS}
-    )
-
     # Link dependencies
     target_link_libraries(
         mbcommon_tests
         mbcommon-static
-        ${GTEST_BOTH_LIBRARIES}
+        gmock
+        gmock_main
     )
 
     # Target C++11

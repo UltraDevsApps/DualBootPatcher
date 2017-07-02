@@ -21,22 +21,19 @@
 
 #include "mbcommon/file/filename.h"
 
-#ifdef __cplusplus
-#  include <cstdbool>
-#else
-#  include <stdbool.h>
-#endif
-
 #include <windows.h>
 
-MB_BEGIN_C_DECLS
+namespace mb
+{
 
-MB_EXPORT int mb_file_open_HANDLE(struct MbFile *file,
-                                  HANDLE handle, bool owned, bool append);
+MB_EXPORT FileStatus file_open_HANDLE(File &file,
+                                      HANDLE handle, bool owned, bool append);
 
-MB_EXPORT int mb_file_open_HANDLE_filename(struct MbFile *file,
-                                           const char *filename, int mode);
-MB_EXPORT int mb_file_open_HANDLE_filename_w(struct MbFile *file,
-                                             const wchar_t *filename, int mode);
+MB_EXPORT FileStatus file_open_HANDLE_filename(File &file,
+                                               const char *filename,
+                                               FileOpenMode mode);
+MB_EXPORT FileStatus file_open_HANDLE_filename_w(File &file,
+                                                 const wchar_t *filename,
+                                                 FileOpenMode mode);
 
-MB_END_C_DECLS
+}

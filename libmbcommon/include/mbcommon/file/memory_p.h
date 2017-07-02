@@ -24,7 +24,8 @@
 #include "mbcommon/file/memory.h"
 
 /*! \cond INTERNAL */
-MB_BEGIN_C_DECLS
+namespace mb
+{
 
 struct MemoryFileCtx
 {
@@ -39,5 +40,5 @@ struct MemoryFileCtx
     bool fixed_size;
 };
 
-MB_END_C_DECLS
+}
 /*! \endcond */
